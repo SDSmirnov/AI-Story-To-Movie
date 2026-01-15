@@ -1,0 +1,216 @@
+#!/usr/bin/env python3
+"""
+Audio Ducking Script
+Автоматически понижает громкость оригинальной аудиодорожки из MP4,
+когда звучит дубляж из MP3 файла.
+"""
+
+import argparse
+import numpy as np
+from pydub import AudioSegment
+from pydub.effects import normalize
+import sys
+
+
+def detect_speech_segments(audio, threshold_db=-40, min_silence_ms=300):
+    """
+    Определяет сегменты речи и объединяет близко расположенные фрагменты.
+    """
+    print(f"Анализ речи (порог: {threshold_db} дБ, пауза: {min_silence_ms} мс)...")
+
+    chunks = [audio[i:i+10] for i in range(0, len(audio), 10)]
+    volume_levels = [chunk.dBFS for chunk in chunks]
+
+    raw_segments = []
+    in_speech = False
+    speech_start = 0
+
+    # 1. Первичный поиск сегментов
+    for i, level in enumerate(volume_levels):
+        time_ms = i * 10
+        if level > threshold_db and not in_speech:
+            in_speech = True
+            speech_start = time_ms
+        elif level <= threshold_db and in_speech:
+            raw_segments.append((speech_start, time_ms))
+            in_speech = False
+
+    if in_speech:
+        raw_segments.append((speech_start, len(audio)))
+
+    if not raw_segments:
+        return []
+
+    # 2. Слияние сегментов (логика против "прострелов")
+    merged_segments = []
+    if raw_segments:
+        curr_start, curr_end = raw_segments[0]
+
+        for next_start, next_end in raw_segments[1:]:
+            # Если разрыв между сегментами меньше min_silence_ms, объединяем их
+            if next_start - curr_end < min_silence_ms:
+                curr_end = next_end
+            else:
+                merged_segments.append((curr_start, curr_end))
+                curr_start, curr_end = next_start, next_end
+
+        merged_segments.append((curr_start, curr_end))
+
+    print(f"Найдено {len(merged_segments)} объединенных речевых сегментов")
+    return merged_segments
+
+def apply_ducking(original_audio, speech_segments, duck_db=-15,
+                  fade_ms=50, padding_ms=100):
+    """
+    Применяет ducking к оригинальному аудио.
+
+    Args:
+        original_audio: AudioSegment оригинальной дорожки
+        speech_segments: список (start_ms, end_ms) когда звучит дубляж
+        duck_db: на сколько дБ понижать громкость оригинала
+        fade_ms: длина плавного перехода (мс)
+        padding_ms: отступ до/после речи для ducking (мс)
+
+    Returns:
+        AudioSegment с примененным ducking'ом
+    """
+    print(f"Применение ducking (понижение: {duck_db} дБ, fade: {fade_ms} мс, отступ: {padding_ms} мс)...")
+
+    result = original_audio
+
+    for start_ms, end_ms in speech_segments:
+        # Добавляем отступы
+        duck_start = max(0, start_ms - padding_ms)
+        duck_end = min(len(original_audio), end_ms + padding_ms)
+
+        # Извлекаем сегмент для обработки
+        before = result[:duck_start]
+        ducked_segment = result[duck_start:duck_end]
+        after = result[duck_end:]
+
+        # Понижаем громкость
+        ducked_segment = ducked_segment + duck_db
+
+        # Применяем fade-in/out для плавности
+        if fade_ms > 0:
+            fade_length = min(fade_ms, len(ducked_segment) // 2)
+            ducked_segment = ducked_segment.fade_in(fade_length).fade_out(fade_length)
+
+        # Собираем обратно
+        result = before + ducked_segment + after
+
+    return result
+
+
+def extract_audio_from_video(video_path):
+    """Извлекает аудио из MP4 файла."""
+    print(f"Извлечение аудио из видео: {video_path}")
+    try:
+        audio = AudioSegment.from_file(video_path, format="mp4")
+        print(f"Успешно извлечено: {len(audio)/1000:.2f} сек")
+        return audio
+    except Exception as e:
+        print(f"Ошибка при извлечении аудио: {e}")
+        sys.exit(1)
+
+
+def load_dubbed_audio(dubbed_path):
+    """Загружает MP3 дубляж."""
+    print(f"Загрузка дубляжа: {dubbed_path}")
+    try:
+        audio = AudioSegment.from_mp3(dubbed_path)
+        print(f"Успешно загружено: {len(audio)/1000:.2f} сек")
+        return audio
+    except Exception as e:
+        print(f"Ошибка при загрузке дубляжа: {e}")
+        sys.exit(1)
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description='Автоматический ducking оригинальной аудиодорожки при звучании дубляжа',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Примеры использования:
+  %(prog)s video.mp4 dubbed.mp3 output.mp3
+  %(prog)s video.mp4 dubbed.mp3 output.mp3 --duck-db -20 --threshold -35
+  %(prog)s video.mp4 dubbed.mp3 output.mp3 --fade 100 --padding 200
+        """
+    )
+
+    parser.add_argument('video', help='Путь к MP4 файлу с оригинальным аудио')
+    parser.add_argument('dubbed', help='Путь к MP3 файлу с дубляжом')
+    parser.add_argument('output', help='Путь для сохранения результата (MP3)')
+
+    parser.add_argument('--duck-db', type=float, default=-15,
+                        help='На сколько дБ понижать громкость оригинала (по умолчанию: -15)')
+    parser.add_argument('--threshold', type=float, default=-40,
+                        help='Порог громкости для определения речи в дБ (по умолчанию: -40)')
+    parser.add_argument('--min-silence', type=int, default=300,
+                        help='Минимальная длина паузы между фразами в мс (по умолчанию: 300)')
+    parser.add_argument('--fade', type=int, default=50,
+                        help='Длина плавного перехода в мс (по умолчанию: 50)')
+    parser.add_argument('--padding', type=int, default=100,
+                        help='Отступ до/после речи для ducking в мс (по умолчанию: 100)')
+    parser.add_argument('--normalize', action='store_true',
+                        help='Нормализовать громкость результата')
+
+    args = parser.parse_args()
+
+    print("=" * 60)
+    print("Audio Ducking Script")
+    print("=" * 60)
+
+    # Загружаем аудио
+    original_audio = extract_audio_from_video(args.video)
+    dubbed_audio = load_dubbed_audio(args.dubbed)
+
+    # Проверяем длительность
+    if abs(len(original_audio) - len(dubbed_audio)) > 1000:
+        print(f"\n⚠️  ВНИМАНИЕ: Разница в длительности {abs(len(original_audio) - len(dubbed_audio))/1000:.2f} сек")
+        print("Возможно, файлы не синхронизированы")
+
+    # Определяем, где звучит дубляж
+    speech_segments = detect_speech_segments(
+        dubbed_audio,
+        threshold_db=args.threshold,
+        min_silence_ms=args.min_silence
+    )
+
+    if not speech_segments:
+        print("\n❌ Речь в дубляже не обнаружена. Попробуйте изменить параметр --threshold")
+        sys.exit(1)
+
+    print(f"\nПримеры найденных сегментов:")
+    for i, (start, end) in enumerate(speech_segments[:5]):
+        print(f"  {i+1}. {start/1000:.2f}с - {end/1000:.2f}с ({(end-start)/1000:.2f}с)")
+    if len(speech_segments) > 5:
+        print(f"  ... и еще {len(speech_segments) - 5} сегментов")
+
+    # Применяем ducking
+    ducked_audio = apply_ducking(
+        original_audio,
+        speech_segments,
+        duck_db=args.duck_db,
+        fade_ms=args.fade,
+        padding_ms=args.padding
+    )
+
+    # Нормализация (опционально)
+    if args.normalize:
+        print("Нормализация громкости...")
+        ducked_audio = normalize(ducked_audio)
+
+    # Сохраняем результат
+    print(f"\nСохранение результата: {args.output}")
+    ducked_audio.export(args.output, format="mp3", bitrate="192k")
+
+    print("\n" + "=" * 60)
+    print("✅ Готово!")
+    print(f"Создан файл: {args.output}")
+    print(f"Длительность: {len(ducked_audio)/1000:.2f} сек")
+    print("=" * 60)
+
+
+if __name__ == "__main__":
+    main()

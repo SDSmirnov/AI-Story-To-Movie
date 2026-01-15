@@ -1,0 +1,39 @@
+#!/usr/bin/env python3
+
+import google.generativeai as ggenai
+import sys
+from google import genai
+import json
+import os
+import time
+import argparse
+from pathlib import Path
+from PIL import Image
+from typing import Dict, List, Any
+
+# --- КОНФИГУРАЦИЯ ---
+TEXT_MODEL = "gemini-2.5-pro"
+IMAGE_MODEL = "gemini-3-pro-image-preview"
+
+api_key = os.getenv('IMG_AI_API_KEY', '')
+if not api_key:
+    print("❌ ОШИБКА: Не найден API ключ")
+    exit(1)
+
+ggenai.configure(api_key=api_key)
+client = genai.Client(api_key=api_key)
+
+combined_prompt = [f"Edit the first image, apply the following changes: {sys.argv[2]}"]
+ref_images = []
+for i in range(3, len(sys.argv)):
+    path = sys.argv[i]
+    img = Image.open(path)
+    ref_images.append(img)
+
+contents = [combined_prompt] + ref_images
+print(contents)
+resp = client.models.generate_content(
+    model=IMAGE_MODEL, contents=contents,
+    config={'response_modalities': ['Image'], 'image_config': {'aspect_ratio': '16:9', 'image_size': '2K'}}
+)
+resp.parts[0].as_image().save(sys.argv[1])
