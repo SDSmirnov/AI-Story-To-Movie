@@ -1,0 +1,49 @@
+{
+  "format": {
+    "type": "dual_grid_animation",
+    "description": "Two vertically stacked 3x3 grids for START/END keyframes",
+    "panels_per_scene": 9,
+    "frames_per_panel": 2,
+    "total_panels_per_image": 18
+  },
+  "image_generation": {
+    "aspect_ratio": "5:4",
+    "resolution": "4K",
+    "image_size": "4K",
+    "single_image": true,
+    "grid_layout": "vertical_stack"
+  },
+  "animation": {
+    "enabled": true,
+    "default_duration": 8,
+    "duration_range": [6, 8],
+    "keyframe_type": "start_end",
+    "motion_scale": "micro_action"
+  },
+  "slicing": {
+    "enabled": true,
+    "output_separate_files": true,
+    "naming_pattern": "{scene_id:03d}_{panel_id:02d}_{frame_type}.png",
+    "frame_types": ["start", "end"]
+  },
+  "dialogue": {
+    "enabled": true,
+    "placement": "metadata_only",
+    "format": "text"
+  },
+  "captions": {
+    "enabled": false,
+    "placement": "none"
+  },
+  "content_moderation": {
+    "apply_guidelines": true,
+    "level": "moderate"
+  },
+  "reference_characters": {
+    "enabled": true,
+    "auto_cast": true,
+    "generate_refs": true,
+    "ref_aspect_ratio": "3:4",
+    "ref_shot_type": "closeup"
+  }
+}

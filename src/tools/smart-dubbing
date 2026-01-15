@@ -1,0 +1,461 @@
+#!/bin/env python3
+import os
+import sys
+import json
+import wave
+import math
+import shutil
+import time
+import numpy as np
+from pathlib import Path
+
+# Библиотеки для AI
+from google import genai
+from google.genai import types
+from faster_whisper import WhisperModel
+
+# Библиотеки для медиа
+from moviepy.editor import VideoFileClip
+from pydub import AudioSegment
+
+# --- КОНФИГУРАЦИЯ ---
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+INPUT_VIDEO = sys.argv[1]
+OUTPUT_FILENAME = sys.argv[2]
+CONTEXT = open(sys.argv[3], 'r').read()
+
+INTERMEDIATE_JSON = "dubbing_plan.json"
+TRANSCRIPTION_CACHE = "transcription_cache.json"
+TEMP_WAV = "temp_source.wav"
+TEMP_SEGMENTS_DIR = Path("temp_segments")
+
+# Модели
+TTS_MODEL = "gemini-2.5-flash-preview-tts"
+TRANSLATION_MODEL = "gemini-2.5-pro"
+
+# Параметры речи
+TARGET_WPM = 130  # слов в минуту для русского языка
+SPEED_TOLERANCE = 1.35  # максимальное ускорение
+
+# Параметры защиты от перехлёста
+MIN_GAP_MS = 50  # минимальный зазор между сегментами в миллисекундах
+OVERLAP_DETECTION_THRESHOLD = 100  # если перехлёст больше 100мс, считаем критичным
+
+# Маппинг голосов
+VOICE_MAP = {
+    "narrator": "Rasalgethi",
+    "narrator_drama": "Fenrir",
+    "narrator_soft": "Vindemiatrix",
+    "male_hero": "Orus",
+    "male_deep": "Puck",
+    "male_calm": "Umbriel",
+    "male": "Puck",
+    "female_hero": "Zephyr",
+    "female_strict": "Kore",
+    "female_soft": "Achernar",
+    "female": "Zephyr",
+}
+
+if not GOOGLE_API_KEY:
+    raise ValueError("❌ Не установлен GOOGLE_API_KEY")
+
+client = genai.Client(api_key=GOOGLE_API_KEY)
+
+def estimate_speech_duration(text, wpm=TARGET_WPM):
+    """Оценивает длительность речи исходя из количества слов"""
+    words = len(text.split())
+    duration_seconds = (words / wpm) * 60
+    return duration_seconds
+
+def calculate_max_words(duration_seconds, wpm=TARGET_WPM):
+    """Вычисляет максимальное количество слов для заданной длительности"""
+    return int((duration_seconds * wpm) / 60)
+
+def get_file_hash(filepath):
+    """Простой хеш для проверки изменений файла"""
+    import hashlib
+    stat = os.stat(filepath)
+    # Используем размер и время модификации как "хеш"
+    hash_string = f"{stat.st_size}_{stat.st_mtime}"
+    return hashlib.md5(hash_string.encode()).hexdigest()
+
+# ==========================================
+# 1. ТРАНСКРИБАЦИЯ (WHISPER) С КЕШИРОВАНИЕМ
+# ==========================================
+def transcribe_video(video_path):
+    print(f"🎧 1. Извлечение аудио и транскрибация (Whisper)...")
+
+    # Вычисляем хеш видео для кеша
+    video_hash = get_file_hash(video_path)
+
+    # Проверяем кеш транскрипции
+    cache_valid = False
+    if os.path.exists(TRANSCRIPTION_CACHE):
+        try:
+            with open(TRANSCRIPTION_CACHE, 'r', encoding='utf-8') as f:
+                cache_data = json.load(f)
+                if cache_data.get('video_hash') == video_hash:
+                    print(f"   💾 Найден кеш транскрипции для этого видео!")
+                    segments = cache_data.get('segments', [])
+                    total_duration = cache_data.get('total_duration', 0)
+                    cache_valid = True
+                    print(f"   ✅ Загружено {len(segments)} сегментов из кеша")
+                else:
+                    print(f"   ⚠️ Кеш устарел (видео изменилось), выполняем новую транскрипцию...")
+        except (json.JSONDecodeError, KeyError) as e:
+            print(f"   ⚠️ Ошибка чтения кеша: {e}")
+
+    if not cache_valid:
+        # Проверяем, есть ли уже извлеченный WAV
+        if os.path.exists(TEMP_WAV):
+            print(f"   📁 Используем существующий {TEMP_WAV}")
+            clip = VideoFileClip(video_path)
+            total_duration = clip.duration
+            clip.close()
+        else:
+            print(f"   🎬 Извлекаем аудио из видео...")
+            clip = VideoFileClip(video_path)
+            clip.audio.write_audiofile(TEMP_WAV, logger=None)
+            total_duration = clip.duration
+            clip.close()
+
+        # Whisper
+        print(f"   🤖 Запуск Whisper для транскрибации...")
+        model = WhisperModel("base", device="cpu", compute_type="int8")
+        segments_raw, _ = model.transcribe(
+            TEMP_WAV,
+            beam_size=5,
+            language="en",
+            word_timestamps=True,  # Включаем точные таймкоды слов
+            vad_filter=True,       # Включаем встроенный VAD фильтр Whisper
+            vad_parameters=dict(min_silence_duration_ms=500))
+
+        segments = []
+        for s in segments_raw:
+            segments.append({
+                "start": s.start,
+                "end": s.end,
+                "original_text": s.text.strip()
+            })
+            print(f"   {segments[-1]}")
+
+        # Сохраняем в кеш
+        cache_data = {
+            'video_hash': video_hash,
+            'video_path': video_path,
+            'total_duration': total_duration,
+            'segments': segments,
+            'timestamp': time.time()
+        }
+        with open(TRANSCRIPTION_CACHE, 'w', encoding='utf-8') as f:
+            json.dump(cache_data, f, ensure_ascii=False, indent=2)
+        print(f"   💾 Транскрипция сохранена в кеш: {TRANSCRIPTION_CACHE}")
+
+    return segments, total_duration
+
+# ==========================================
+# 2. ПЕРЕВОД И АНАЛИЗ ЭМОЦИЙ (GEMINI)
+# ==========================================
+def analyze_and_translate(segments):
+    print(f"🧠 2. Перевод и анализ эмоций (Gemini)...")
+
+    prompt_text = f"""
+You are a professional dubbing director for Russian dubbing.
+
+For EACH sentence, you must:
+1. Translate it to Russian (natural conversational style).
+2. ADAPT the translation length to fit the time slot based on word count.
+3. Detect Emotion/Tone (e.g., 'excited', 'sad', 'neutral', 'whispering', 'shouting').
+4. Suggest Voice Type (choose from: 'male_hero', 'male_deep', 'male_calm', 'female_hero', 'female_soft', 'female_strict', 'narrator').
+5. Assign 'speaker_id' for voice consistency tracking (optional field).
+
+CRITICAL TIMING RULES:
+- Russian speech rate: {TARGET_WPM} words per minute
+- Each segment has 'duration' in seconds
+- Calculate max_words = (duration * {TARGET_WPM}) / 60
+- Your translation MUST NOT exceed max_words
+- If original is too long, PARAPHRASE to fit (keep meaning, reduce words)
+- Prioritize natural Russian phrasing over literal translation
+
+VOICE CONSISTENCY BY PERSONA:
+- Analyze the context to identify distinct speakers/characters
+- If you detect multiple personas (e.g., interviewer/interviewee, host/guest, different characters), assign each a unique 'speaker_id' (e.g., "person_1", "person_2", "character_alice")
+- ALWAYS use the SAME voice_type for the SAME speaker_id throughout the entire video
+- For single-speaker content (monologue, lecture, documentary narration), use speaker_id: "narrator" or null
+- Consider gender, age, and character traits when assigning voice types to personas
+- Examples:
+  * Interview: speaker_id "interviewer" → male_calm, speaker_id "guest" → female_hero
+  * Dialogue: speaker_id "hero" → male_hero, speaker_id "villain" → male_deep
+  * Documentary: speaker_id "narrator" → narrator
+
+Input: JSON list with 'id', 'text', 'duration', 'max_words'
+Output: RAW JSON list with 'id', 'ru_text', 'word_count', 'tone', 'voice_type', 'speaker_id' (optional)
+
+DO NOT use Markdown code blocks. Just raw JSON.
+
+<CONTEXT_STORY>{CONTEXT}</CONTEXT_STORY>
+"""
+
+    # Подготавливаем данные с информацией о длительности
+    input_data = []
+    for i, s in enumerate(segments):
+        duration = s['end'] - s['start']
+        max_words = calculate_max_words(duration)
+        input_data.append({
+            "id": i,
+            "text": s["original_text"],
+            "duration": round(duration, 2),
+            "max_words": max_words
+        })
+
+    response = client.models.generate_content(
+        model=TRANSLATION_MODEL,
+        contents=f"{prompt_text}\n\nDATA: {json.dumps(input_data, ensure_ascii=False)}",
+        config=types.GenerateContentConfig(response_mime_type="application/json")
+    )
+
+    try:
+        translated_data = json.loads(response.text)
+        trans_map = {item['id']: item for item in translated_data}
+
+        combined = []
+        for i, seg in enumerate(segments):
+            t_item = trans_map.get(i)
+            if t_item:
+                ru_text = t_item.get("ru_text", "")
+                seg["ru_text"] = ru_text
+                seg["word_count"] = len(ru_text.split())
+                seg["tone"] = t_item.get("tone", "neutral")
+                seg["voice_type"] = t_item.get("voice_type", "narrator")
+                seg["speaker_id"] = t_item.get("speaker_id", None)
+
+                # Проверяем, вписывается ли перевод
+                duration = seg['end'] - seg['start']
+                max_words = calculate_max_words(duration)
+                if seg["word_count"] > max_words:
+                    print(f"   ⚠️ Сегмент {i}: {seg['word_count']} слов > {max_words} (может не влезть)")
+            else:
+                seg["ru_text"] = seg["original_text"]
+                seg["word_count"] = len(seg["original_text"].split())
+                seg["tone"] = "neutral"
+                seg["voice_type"] = "narrator"
+                seg["speaker_id"] = None
+            combined.append(seg)
+
+        return combined
+    except json.JSONDecodeError:
+        print("❌ Ошибка парсинга JSON от Gemini.")
+        print(response.text)
+        return segments
+
+# ==========================================
+# 3. ГЕНЕРАЦИЯ РЕЧИ (GEMINI TTS)
+# ==========================================
+def generate_audio_segment(text, voice_key, tone, output_path):
+    """Генерирует аудио сегмент, использует кэш если файл существует"""
+
+    # Проверяем кэш
+    if output_path.exists():
+        print(f"   💾 Используем кэшированный файл: {output_path.name}")
+        return True
+
+    gemini_voice = VOICE_MAP.get(voice_key, "Rasalgethi")
+
+    speech_config = types.SpeechConfig(
+        voice_config=types.VoiceConfig(
+            prebuilt_voice_config=types.PrebuiltVoiceConfig(
+                voice_name=gemini_voice
+            )
+        )
+    )
+
+    prompt = f"""Read the following text in Russian.
+EMOTION/TONE: {tone}
+TEXT TO READ: {text}
+INSTRUCTION: Apply the emotion naturally, but do not read these instructions aloud."""
+
+    try:
+        time.sleep(5)  # Rate limiting
+        response = client.models.generate_content(
+            model=TTS_MODEL,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                response_modalities=["AUDIO"],
+                speech_config=speech_config
+            )
+        )
+
+        for part in response.candidates[0].content.parts:
+            if part.inline_data:
+                with wave.open(str(output_path), 'wb') as wav_file:
+                    wav_file.setnchannels(1)
+                    wav_file.setsampwidth(2)
+                    wav_file.setframerate(24000)
+                    wav_file.writeframes(part.inline_data.data)
+                return True
+        return False
+    except Exception as e:
+        print(f"❌ Ошибка TTS для '{text[:30]}...': {e}")
+        return False
+
+# ==========================================
+# 4. СБОРКА (PYDUB) С ЗАЩИТОЙ ОТ ПЕРЕХЛЁСТА
+# ==========================================
+def detect_and_resolve_overlaps(segments):
+    """
+    Обнаруживает перехлёсты.
+    Стратегия: Приоритет начала (start) следующего сегмента.
+    Если есть перехлест, укорачиваем конец (end) предыдущего.
+    """
+    print(f"🔧 Проверка и устранение перехлёстов (STRATEGY: Prioritize Next Start)...")
+
+    resolved_segments = []
+    if not segments:
+        return []
+
+    # Добавляем первый сегмент как есть
+    resolved_segments.append(segments[0].copy())
+
+    for i in range(1, len(segments)):
+        current_seg = segments[i].copy()
+        prev_seg = resolved_segments[-1]
+
+        # Границы с учетом уже внесенных изменений
+        prev_end = prev_seg.get('adjusted_end', prev_seg['end'])
+        current_start = current_seg['start']
+
+        # Если текущий сегмент начинается РАНЬШЕ, чем заканчивается предыдущий (с учетом зазора)
+        if current_start < prev_end + (MIN_GAP_MS / 1000.0):
+            overlap_amount = (prev_end + (MIN_GAP_MS / 1000.0)) - current_start
+
+            # РЕШЕНИЕ: Подрезаем ПРЕДЫДУЩИЙ сегмент, чтобы освободить место для нового
+            # Но не позволяем подрезать сегмент до нуля (оставляем хотя бы 0.5 сек)
+            min_duration = 0.5
+            new_prev_end = current_start - (MIN_GAP_MS / 1000.0)
+
+            prev_start = prev_seg.get('adjusted_start', prev_seg['start'])
+
+            if (new_prev_end - prev_start) > min_duration:
+                print(f"   ✂️ Обрезаем конец сегмента {i-1}, чтобы спасти синхрон сегмента {i}")
+                prev_seg['adjusted_end'] = round(new_prev_end, 3)
+                # Текущий оставляем где был (сохраняем синхрон губ/действия)
+                current_seg['adjusted_start'] = current_start
+            else:
+                # Если предыдущий сегмент слишком короткий, чтобы его резать,
+                # тогда, увы, сдвигаем текущий (меньшее из зол)
+                print(f"   🐢 Сдвигаем сегмент {i} (предыдущий слишком короткий)")
+                current_seg['adjusted_start'] = round(prev_end + (MIN_GAP_MS / 1000.0), 3)
+        else:
+            current_seg['adjusted_start'] = current_start
+
+        current_seg['adjusted_end'] = current_seg['end'] # Изначальный конец
+        resolved_segments.append(current_seg)
+
+    return resolved_segments
+
+def assemble_audio(segments, total_duration):
+    print(f"🎹 4. Сборка и синхронизация аудио...")
+
+    # Сначала устраняем перехлёсты
+    segments = detect_and_resolve_overlaps(segments)
+
+    final_track = AudioSegment.silent(duration=int(total_duration * 1000))
+    TEMP_SEGMENTS_DIR.mkdir(exist_ok=True)
+
+    placement_log = []
+
+    for i, seg in enumerate(segments):
+        if not seg["ru_text"] or len(seg["ru_text"]) < 2:
+            continue
+
+        temp_file = TEMP_SEGMENTS_DIR / f"seg_{i}_{seg['voice_type']}.wav"
+
+        # Генерируем (или берем из кэша)
+        speaker_info = f"[{seg.get('speaker_id', 'unknown')}]" if seg.get('speaker_id') else ""
+        print(f"   🎙️ [{i}]{speaker_info}[{seg['voice_type']}][{seg['tone']}] {seg['ru_text'][:50]}...")
+        success = generate_audio_segment(seg['ru_text'], seg['voice_type'], seg['tone'], temp_file)
+
+        if success:
+            audio_segment = AudioSegment.from_wav(str(temp_file))
+            # Используем скорректированные границы
+            segment_start = seg.get('adjusted_start', seg['start'])
+
+            # ВАЖНО: Если мы подрезали конец сегмента в detect_and_resolve_overlaps,
+            # мы должны учесть это здесь
+            target_end = seg.get('adjusted_end', seg['end'])
+
+            # Вычисляем доступное время
+            time_slot_duration_ms = (target_end - segment_start) * 1000
+            actual_duration_ms = len(audio_segment)
+
+            start_pos = int(segment_start * 1000)
+
+            # Логика ускорения (Speedup)
+            # Если аудио длиннее слота (потому что мы его подрезали или перевод длинный)
+            if actual_duration_ms > time_slot_duration_ms:
+                speed_factor = actual_duration_ms / time_slot_duration_ms
+
+                # Разрешаем чуть более агрессивное ускорение, если слот был подрезан
+                if speed_factor > SPEED_TOLERANCE:
+                     # Если нужно ускорить слишком сильно, ускоряем до предела,
+                     # но аудио "наедет" на следующий сегмент (лучше так, чем рассинхрон)
+                    speed_factor = SPEED_TOLERANCE
+
+                if speed_factor > 1.05:
+                    audio_segment = audio_segment.speedup(playback_speed=speed_factor)
+                    actual_duration_ms = len(audio_segment)
+
+            # Наложение
+            final_track = final_track.overlay(audio_segment, position=start_pos)
+
+            placement_log.append({
+                'segment_id': i,
+                'start_pos': start_pos,
+                'end_pos': start_pos + actual_duration_ms,
+                'duration': actual_duration_ms
+            })
+
+    # Сохраняем лог размещения для отладки
+    with open("placement_log.json", "w", encoding="utf-8") as f:
+        json.dump(placement_log, f, ensure_ascii=False, indent=2)
+    print(f"   📋 Лог размещения сохранён в placement_log.json")
+
+    return final_track
+
+# ==========================================
+# MAIN
+# ==========================================
+def main():
+    print("🎬 Smart Dubbing Script - Enhanced Version v2.0")
+    print(f"   Target WPM: {TARGET_WPM}")
+    print(f"   Max speed: {SPEED_TOLERANCE}x")
+    print(f"   Min gap between segments: {MIN_GAP_MS}ms")
+    print()
+
+    # Шаг 1: Whisper с кешированием и продвинутым определением границ
+    segments, duration = transcribe_video(INPUT_VIDEO)
+
+    # Шаг 2: Gemini с учетом длительности
+    if os.path.exists(INTERMEDIATE_JSON):
+        print(f"📂 Найден файл {INTERMEDIATE_JSON}, используем его.")
+        with open(INTERMEDIATE_JSON, "r", encoding="utf-8") as f:
+            rich_segments = json.load(f)
+    else:
+        rich_segments = analyze_and_translate(segments)
+        with open(INTERMEDIATE_JSON, "w", encoding="utf-8") as f:
+            json.dump(rich_segments, f, ensure_ascii=False, indent=2)
+        print(f"💾 План сохранен в {INTERMEDIATE_JSON}")
+
+    # Шаг 3-4: Генерация с кэшем и сборка с защитой от перехлёста
+    final_audio = assemble_audio(rich_segments, duration)
+
+    # Сохранение
+    final_audio.export(OUTPUT_FILENAME, format="mp3")
+    print(f"\n✅ Готово! Файл: {OUTPUT_FILENAME}")
+    print(f"   Промежуточные файлы сохранены для повторного использования")
+    print(f"   📁 Кеш транскрипции: {TRANSCRIPTION_CACHE}")
+    print(f"   📁 План дубляжа: {INTERMEDIATE_JSON}")
+    print(f"   📁 Лог размещения: placement_log.json")
+
+if __name__ == "__main__":
+    main()

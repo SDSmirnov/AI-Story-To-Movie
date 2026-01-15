@@ -1,0 +1,127 @@
+#!/bin/bash
+
+# Function to print usage
+usage() {
+    echo "Usage:"
+    echo "  fmp cut <start> <end> <input> <output>"
+    echo "  fmp merge <output> <input1> <input2> ..."
+    echo "  fmp sound <output> <video_in> <audio_in>"
+    echo "  fmp background <output> <video_in> <bg_audio> <volume>"
+    echo "  fmp recode <resolution> <input> <output>"
+    echo "  fmp stale <image> <duration> <resolution> <output>"
+    echo "  fmp reverse <input> <output>"
+    echo "  fmp speedup <input> <output>"
+    exit 1
+}
+
+if ! command -v ffmpeg &> /dev/null; then
+    echo "Error: ffmpeg is not installed."
+    exit 1
+fi
+
+COMMAND=$1
+
+# Standard encoding options (H.264 video, AAC audio)
+ENCODE_OPTS="-c:v libx264 -crf 23 -preset fast -c:a aac -b:a 128k"
+
+case "$COMMAND" in
+    cut)
+        # Syntax: fmp cut 00:01 00:02 in.mp4 out.mp4
+        START=$2
+        END=$3
+        INPUT=$4
+        OUTPUT=$5
+        if [ -z "$OUTPUT" ]; then usage; fi
+
+        ffmpeg -ss "$START" -to "$END" -i "$INPUT" $ENCODE_OPTS -avoid_negative_ts make_zero "$OUTPUT"
+        ;;
+
+    merge)
+        # Syntax: fmp merge out.mp4 in1.mp4 in2.mp4 ...
+        OUTPUT=$2
+        shift 2
+        if [ -z "$1" ]; then usage; fi
+
+        LISTFILE=$(mktemp)
+        for f in "$@"; do echo "file '$PWD/$f'" >> "$LISTFILE"; done
+
+        ffmpeg -f concat -safe 0 -i "$LISTFILE" $ENCODE_OPTS "$OUTPUT"
+        rm "$LISTFILE"
+        ;;
+
+    sound)
+        # Syntax: fmp sound out.mp4 in.mp4 in.mp3
+        OUTPUT=$2
+        VIDEO=$3
+        AUDIO=$4
+        if [ -z "$AUDIO" ]; then usage; fi
+
+        # UPDATED: Added '-af loudnorm' to normalize audio loudness
+        # We use -c:v copy (keep video as is) but re-encode audio to apply normalization
+        ffmpeg -i "$VIDEO" -i "$AUDIO" \
+        -c:v copy -map 0:v -map 1:a \
+        -af loudnorm=I=-16:TP=-1.5:LRA=11 \
+        -c:a aac -b:a 192k \
+        "$OUTPUT"
+        ;;
+
+    background)
+        # Syntax: fmp background out.mp4 in.mp4 bg.mp3 "18%"
+        OUTPUT=$2
+        VIDEO=$3
+        AUDIO=$4
+        VOLUME=$5
+        if [ -z "$VOLUME" ]; then usage; fi
+
+        ffmpeg -i "$VIDEO" -i "$AUDIO" \
+        -filter_complex "[1:a]volume=$VOLUME[bg];[0:a][bg]amix=inputs=2:duration=first[aout]" \
+        -map 0:v -map "[aout]" -c:v copy -c:a aac "$OUTPUT"
+        ;;
+
+    recode)
+        # Syntax: fmp recode 1280x720 input.mp4 output.mp4
+        RES=$2
+        INPUT=$3
+        OUTPUT=$4
+        if [ -z "$OUTPUT" ]; then usage; fi
+
+        # ffmpeg -i "$INPUT" -vf "scale=$RES" $ENCODE_OPTS "$OUTPUT"
+        ffmpeg -i "$INPUT" -vf "scale=$RES:force_original_aspect_ratio=decrease,pad=$RES:(ow-iw)/2:(oh-ih)/2:black" -c:v libx264 -crf 23 -c:a copy "$OUTPUT"
+        ;;
+
+    stale)
+        IMAGE=$2
+        DURATION=$3
+        RES=$4
+        OUTPUT=$5
+        if [ -z "$OUTPUT" ]; then usage; fi
+
+        # UPDATED: Added 'fps=30' to the filter chain.
+        # This forces the output to be a standard 30fps video stream.
+        ffmpeg -loop 1 -i "$IMAGE" -f lavfi -i anullsrc=channel_layout=stereo:sample_rate=44100 \
+        -t "$DURATION" \
+        -vf "scale=$RES,format=yuv420p,fps=30" \
+        $ENCODE_OPTS -shortest "$OUTPUT"
+        ;;
+
+    reverse)
+        # Syntax: fmp reverse input.mp4 output.mp4
+        INPUT=$2
+        OUTPUT=$3
+        if [ -z "$OUTPUT" ]; then usage; fi
+        
+        ffmpeg -i "$INPUT" -vf reverse -af areverse $ENCODE_OPTS "$OUTPUT"
+        ;;
+
+    speedup)
+        INPUT=$2
+        OUTPUT=$3
+        if [ -z "$OUTPUT" ]; then usage; fi
+
+        ffmpeg -i "$INPUT" -filter:v "setpts=0.5*PTS,minterpolate='fps=60:mi_mode=mci:mc_mode=aobmc:me_mode=bidir:vsbmc=1'" -filter:a "atempo=2.0" "$OUTPUT"
+        ;;
+
+    *)
+        usage
+        ;;
+esac

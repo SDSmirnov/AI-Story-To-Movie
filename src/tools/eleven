@@ -1,0 +1,211 @@
+#!/usr/bin/env python3
+"""
+Simple CLI for audio generation using Gemini TTS and ElevenLabs SFX.
+
+Usage:
+    python make_sound.py speech "Female [tone concerned]: It will not work" one.mp3
+    python make_sound.py sfx "Loud explosion" 3 expl.mp3
+"""
+
+import os
+import sys
+import wave
+import argparse
+from pathlib import Path
+
+from google import genai
+from google.genai import types
+
+try:
+    from elevenlabs.client import ElevenLabs
+    HAS_ELEVEN = True
+except ImportError:
+    HAS_ELEVEN = False
+
+# === CONFIG ===
+GEMINI_MODEL_TTS = "gemini-2.5-flash-preview-tts"
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+ELEVEN_API_KEY = os.getenv("ELEVEN_API_KEY")
+
+VOICE_MAP = {
+    "narrator": "Rasalgethi",
+    "narrator_drama": "Fenrir",
+    "narrator_soft": "Vindemiatrix",
+    "male_hero": "Orus",
+    "male_deep": "Puck",
+    "male_calm": "Umbriel",
+    "male_villain": "Algenib",
+    "male_old": "Gacrux",
+    "male_casual": "Zubenelgenubi",
+    "female_hero": "Zephyr",
+    "female_strict": "Kore",
+    "female_soft": "Achernar",
+    "female_mature": "Schedar",
+    "female_mystic": "Enceladus",
+    "child": "Leda",
+    "narrator": "Rasalgethi",
+    "female": "Zephyr",
+    "male": "Rasalgethi",
+    "robot": "Iapetus",
+
+}
+
+if not GOOGLE_API_KEY:
+    print("❌ ERROR: GOOGLE_API_KEY not set")
+    sys.exit(1)
+
+client_gemini = genai.Client(api_key=GOOGLE_API_KEY)
+client_eleven = ElevenLabs(api_key=ELEVEN_API_KEY) if HAS_ELEVEN and ELEVEN_API_KEY else None
+
+
+def parse_speech_input(text: str):
+    """Parse 'Female [tone concerned]: Hello' -> (voice, tone, text)"""
+    voice = "narrator"
+    tone = "neutral"
+    speech_text = text
+    
+    # Extract voice (Female/Male/Robot/Narrator)
+    for key in VOICE_MAP.keys():
+        if text.lower().startswith(key):
+            voice = key
+            text = text[len(key):].strip()
+            break
+    
+    # Extract [tone xxx]
+    if text.startswith("["):
+        end = text.find("]")
+        if end > 0:
+            tone_part = text[1:end].strip()
+            if tone_part.lower().startswith("tone "):
+                tone = tone_part[5:].strip()
+            text = text[end+1:].strip()
+    
+    # Remove leading colon
+    if text.startswith(":"):
+        text = text[1:].strip()
+    
+    return voice.lower(), tone, text
+
+
+def generate_speech(text: str, voice_key: str, tone: str, output_path: Path):
+    """Generate speech using Gemini TTS"""
+    gemini_voice = VOICE_MAP.get(voice_key, VOICE_MAP["narrator"])
+    
+    speech_config = types.SpeechConfig(
+        voice_config=types.VoiceConfig(
+            prebuilt_voice_config=types.PrebuiltVoiceConfig(
+                voice_name=gemini_voice
+            )
+        )
+    )
+    
+    prompt = f"""Read the following line naturally in Russian or English (detect language).
+    
+EMOTION/TONE: {tone}
+
+TEXT TO READ:
+{text}
+
+INSTRUCTION: Apply the emotion, but do not read these instructions aloud."""
+
+    try:
+        response = client_gemini.models.generate_content(
+            model=GEMINI_MODEL_TTS,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                response_modalities=["AUDIO"],
+                speech_config=speech_config
+            )
+        )
+        
+        for part in response.candidates[0].content.parts:
+            if part.inline_data:
+                audio_data = part.inline_data.data
+                mime_type = part.inline_data.mime_type
+                
+                if "audio/L16" in mime_type or "pcm" in mime_type:
+                    with wave.open(str(output_path), 'wb') as wav:
+                        wav.setnchannels(1)
+                        wav.setsampwidth(2)
+                        wav.setframerate(24000)
+                        wav.writeframes(audio_data)
+                    return True
+                elif "audio/mp3" in mime_type:
+                    output_path.write_bytes(audio_data)
+                    return True
+        
+        return False
+    
+    except Exception as e:
+        print(f"❌ Gemini TTS error: {e}")
+        return False
+
+
+def generate_sfx(prompt: str, duration: float, output_path: Path):
+    """Generate SFX using ElevenLabs"""
+    if not client_eleven:
+        print("❌ ERROR: ElevenLabs not available (missing API key or SDK)")
+        return False
+    
+    try:
+        from elevenlabs import save
+        
+        result = client_eleven.text_to_sound_effects.convert(
+            text=prompt,
+            duration_seconds=min(duration, 22.0)
+        )
+        save(result, str(output_path))
+        return True
+    
+    except Exception as e:
+        print(f"❌ ElevenLabs SFX error: {e}")
+        return False
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Generate audio using Gemini TTS or ElevenLabs SFX",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  python make_sound.py speech "Female [tone concerned]: It will not work" one.mp3
+  python make_sound.py speech "Narrator: The night was dark" narration.wav
+  python make_sound.py sfx "Loud explosion" 3 expl.mp3
+  python make_sound.py sfx "Footsteps on metal floor" 5 steps.mp3
+        """
+    )
+    
+    subparsers = parser.add_subparsers(dest='command', required=True)
+    
+    # Speech command
+    speech_parser = subparsers.add_parser('speech', help='Generate speech')
+    speech_parser.add_argument('text', help='Text with optional voice/tone: "Female [tone sad]: Hello"')
+    speech_parser.add_argument('output', help='Output file (mp3/wav)')
+    
+    # SFX command
+    sfx_parser = subparsers.add_parser('sfx', help='Generate sound effect')
+    sfx_parser.add_argument('prompt', help='Sound description')
+    sfx_parser.add_argument('duration', type=float, help='Duration in seconds')
+    sfx_parser.add_argument('output', help='Output file (mp3)')
+    
+    args = parser.parse_args()
+    output_path = Path(args.output)
+    
+    if args.command == 'speech':
+        voice, tone, text = parse_speech_input(args.text)
+        print(f"🎙️  Generating speech: [{voice}] [{tone}] {text[:50]}...")
+        success = generate_speech(text, voice, tone, output_path)
+        
+    elif args.command == 'sfx':
+        print(f"🔊 Generating SFX: {args.prompt} ({args.duration}s)...")
+        success = generate_sfx(args.prompt, args.duration, output_path)
+    
+    if success:
+        print(f"✅ Saved: {output_path}")
+    else:
+        print(f"❌ Failed to generate audio")
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()
