@@ -121,7 +121,7 @@ def transcribe_video(video_path):
 
         # Whisper
         print(f"   🤖 Запуск Whisper для транскрибации...")
-        model = WhisperModel("base", device="cpu", compute_type="int8")
+        model = WhisperModel("medium", device="cpu", compute_type="int8")
         segments_raw, _ = model.transcribe(
             TEMP_WAV,
             beam_size=5,
