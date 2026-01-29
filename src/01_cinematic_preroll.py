@@ -11,6 +11,8 @@ import argparse
 from pathlib import Path
 from PIL import Image
 from typing import Dict, List, Any
+from concurrent.futures import ThreadPoolExecutor
+from threading import Lock
 
 # --- КОНФИГУРАЦИЯ ---
 TEXT_MODEL = "gemini-2.5-pro"
@@ -35,6 +37,59 @@ REF_DIR.mkdir(parents=True, exist_ok=True)
 
 CHARACTER_IMAGES = {}
 CHARACTER_INFO = {}
+
+# === RATE LIMITING ===
+class RateLimiter:
+    """Thread-safe rate limiter"""
+    def __init__(self, rpm: int):
+        self.rpm = rpm
+        self.tokens = rpm
+        self.max_tokens = rpm
+        self.last_update = time.time()
+        self.lock = Lock()
+    
+    def acquire(self):
+        with self.lock:
+            now = time.time()
+            elapsed = now - self.last_update
+            self.tokens = min(self.max_tokens, self.tokens + elapsed * (self.rpm / 60))
+            self.last_update = now
+            
+            if self.tokens < 1:
+                wait_time = (1 - self.tokens) * (60 / self.rpm)
+                time.sleep(wait_time)
+                self.tokens = 0
+            else:
+                self.tokens -= 1
+
+refine_limiter = RateLimiter(rpm=25)
+generate_limiter = RateLimiter(rpm=20)
+
+def retry_on_errors(max_retries=3, backoff_factor=2):
+    """Retry on 500, 503 errors"""
+    def decorator(func):
+        def wrapper(*args, **kwargs):
+            retries = 0
+            while retries < max_retries:
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    error_str = str(e)
+                    if ('500' in error_str or '503' in error_str or 
+                        'Internal Server Error' in error_str or 
+                        'Service Unavailable' in error_str):
+                        retries += 1
+                        if retries >= max_retries:
+                            print(f"    ❌ Max retries reached: {e}")
+                            raise
+                        wait_time = backoff_factor ** retries
+                        print(f"    ⚠️  Retrying in {wait_time}s... ({retries}/{max_retries})")
+                        time.sleep(wait_time)
+                    else:
+                        raise
+            return None
+        return wrapper
+    return decorator
 
 # === ЗАГРУЗКА ПРОМПТОВ ===
 def load_prompts(use_custom: bool = False):
@@ -425,7 +480,13 @@ IMPORTANT: We are filming an Action Movie, ensure scenes are completely showing 
 SCENE TO ANALYZE:
 {text}
 """
-    return generate_json_with_schema(prompt, SCENE_SCHEMA)
+    
+    @retry_on_errors(max_retries=3, backoff_factor=2)
+    def _call_api():
+        refine_limiter.acquire()
+        return generate_json_with_schema(prompt, SCENE_SCHEMA)
+    
+    return _call_api()
 
 
 def analyze_scenes_master(text: str, prompts: dict, config: dict):
@@ -583,19 +644,25 @@ No captions!
                 ref_images = ["# Visual Reference Library\n## IMPORTANT:\nAlways prioritize the visual design of characters/objects from the provided images over your internal concepts."] + ref_images + ["Before generating the image, rewrite panels prompt to ensure maximum visual consistency with provided reference images"]
             contents = ref_images + [combined_prompt]
             print(f"CONTENTS: {contents}")
-            resp = client.models.generate_content(
-                model=IMAGE_MODEL, contents=contents,
-                config={
-                    'response_modalities': ['Image'],
-                    'temperature': 0.65,
-                    'top_p': 0.85,
-                    'seed': 37,
-                    'image_config': {
-                        'aspect_ratio': aspect_ratio,
-                        'image_size': resolution
+            
+            @retry_on_errors(max_retries=3, backoff_factor=2)
+            def _call_image_api():
+                generate_limiter.acquire()
+                return client.models.generate_content(
+                    model=IMAGE_MODEL, contents=contents,
+                    config={
+                        'response_modalities': ['Image'],
+                        'temperature': 0.65,
+                        'top_p': 0.85,
+                        'seed': 37,
+                        'image_config': {
+                            'aspect_ratio': aspect_ratio,
+                            'image_size': resolution
+                        }
                     }
-                }
-            )
+                )
+            
+            resp = _call_image_api()
             print(resp)
             resp.parts[0].as_image().save(path_combined)
         except Exception as e:
@@ -701,10 +768,18 @@ def main():
         json.dump(data, f, ensure_ascii=False, indent=2)
 
     # 3. Process Scenes
+    scenes_to_process = [
+        (scene, scene['scene_id'], prompts, config)
+        for scene in data['scenes']
+        if not args.scene or str(args.scene) == str(scene['scene_id']) or str(args.scene) == 'ALL'
+    ]
+    
+    if scenes_to_process:
+        with ThreadPoolExecutor(max_workers=10) as executor:
+            executor.map(lambda x: generate_combined_grid(*x), scenes_to_process)
+    
     for scene in data['scenes']:
-        if not args.scene or str(args.scene) == str(scene['scene_id']) or str(args.scene) == 'ALL':
-            generate_combined_grid(scene, scene['scene_id'], prompts, config)
-        else:
+        if not (not args.scene or str(args.scene) == str(scene['scene_id']) or str(args.scene) == 'ALL'):
             print(f"SKIPPED {scene['scene_id']}")
 
 if __name__ == "__main__":
