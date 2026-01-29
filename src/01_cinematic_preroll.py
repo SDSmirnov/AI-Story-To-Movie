@@ -410,6 +410,7 @@ Important: all dialogues and texts MUST be in English for the consistency.
 
 IMPORTANT: We are filming an Action Movie, ensure scenes are completely showing the story and match text. Create as many scenes as needed to tell the story completely.
 **IMPORTANT: EACH SCENE MUST HAVE EXACTLY 9 PANELS.**
+**IMPORTANT: ADJUST CAMERA AND DYNAMICS TO SCENE NEEDS FOR IMMERSIVE VIEW**
 
 **Your task is to analyze single scene and enhance visual descriptions, motion prompts with all required details to receive greate precise results, resolving disambiguation.**
 
@@ -448,10 +449,28 @@ def analyze_scenes_master(text: str, prompts: dict, config: dict):
         for scene in data.get('scenes', []):
             scene_counter += 1
 
+            used_refs = []
+            for panel in scene.get('panels', []):
+                used_refs.extend(panel.get('references', []))
+
+            used_refs = list(set(used_refs))
+            json_refs = []
+            for ref_name in used_refs:
+                if ref_name in CHARACTER_IMAGES:
+                    fname = CHARACTER_IMAGES[ref_name].replace('.png', '.json')
+                    try:
+                        json_refs.append(json.loads(open(fname, 'r').read()))
+                    except Exception as e:
+                        print(e)
+
             episode_text = f"""
             EPISODE CONTEXT: {json.dumps(episode, ensure_ascii=False, indent=2)}
 
             SCENE DETAILS: {json.dumps(scene, ensure_ascii=False, indent=2)}
+
+            VISUAL REFERENCES: {json.dumps(json_refs)}
+
+            ENSURE THAT DESCRIPTIONS IN REFINED SCENE ALIGN WITH VISUAL REFERENCES.
             """
 
             refined_scene = refine_scenes_for_episode(episode_text, prompts, config).get('scenes', [])[0]
@@ -462,6 +481,9 @@ def analyze_scenes_master(text: str, prompts: dict, config: dict):
                 panel['panel_index'] = idx
 
             all_scenes.append(refined_scene)
+
+            with open(OUTPUT_DIR / f"animation_episode_scenes_{episode_counter:03d}_refined.json", "w", encoding='utf-8') as f:
+                json.dump({'scenes': [refined_scene]}, f, ensure_ascii=False, indent=2)
 
     return {'scenes': all_scenes}
 
