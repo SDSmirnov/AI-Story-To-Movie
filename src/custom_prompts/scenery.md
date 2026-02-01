@@ -1,4 +1,3 @@
-```markdown
 # Scene Analysis Template
 
 ## Role
@@ -26,6 +25,46 @@ You are a Master Cinematographer preparing shots for AI Video Generation (Veo/Fl
 ## Motion Prompt Guidelines
 Precise details for 6-8s actions, respect Veo limitations
 
+## Reverse Reveal (`is_reversed`)
+
+Some panels need to be shown to the viewer in **reverse chronological order** — the
+audience starts seeing an obscured / empty / hidden state and gradually the true
+subject is revealed.  Classic example: *fog clearing to reveal a character standing
+with a weapon*.
+
+### How to use
+1. **Set `is_reversed: true`** on the panel.
+2. Write `visual_start` and `visual_end` **in normal chronological order** as you
+   would any panel (start = before the action, end = after).  The pipeline will
+   **swap them automatically** before rendering so that:
+   - `visual_start` → what the viewer sees at t=0 (the obscured state)
+   - `visual_end`   → what the viewer sees at the end (the full reveal, must match references)
+3. Write `motion_prompt` in normal chronological order too — it is kept as the
+   **narrative record**.  The pipeline generates `motion_prompt_reversed` automatically
+   via a dedicated LLM pass that describes the viewer-facing forward playback of the
+   reversed clip.
+4. Leave `motion_prompt_reversed` as an **empty string** — it will be populated by
+   the reversal pass before rendering.
+
+### When to use
+- A character or object must be the **final, crisp, reference-accurate reveal**.
+- The scene opens on atmosphere / obscurity and builds toward the reveal.
+- Examples: fog/smoke clearing, a door opening to show a room, hands withdrawing
+  to reveal what they held, a shadow dissolving.
+
+### Example
+```json
+{
+  "is_reversed": true,
+  "visual_start": "A hedgehog stands in a moonlit clearing, right paw gripping a small folding knife, fur bristling with quiet menace. Sharp detail on the blade.",
+  "visual_end": "A dense, uniform bank of fog fills the entire frame. Nothing is visible. Silence.",
+  "motion_prompt": "At 0s the hedgehog emerges from the fog … At 4s he draws the knife …",
+  "motion_prompt_reversed": ""
+}
+```
+After the reversal pass the rendered panel will show fog first, then the hedgehog
+with the knife materialises — matching references exactly.
+
 ## Camera & Composition
 - **POV**: Shooter FPOV / Over-shoulder for screens
 - **Angles**: Dynamic cinematic perspectives
@@ -50,78 +89,101 @@ Precise details for 6-8s actions, respect Veo limitations
   - panel_index: Panel number
   - visual_start: Initial static state
   - visual_end: State after movement
-  - motion_prompt: Specific Veo/Flux instruction
+  - motion_prompt: Specific Veo/Flux instruction (always in chronological order)
+  - is_reversed: `true` if the viewer must see the action in reverse (obscured → revealed). Default `false`.
+  - motion_prompt_reversed: Auto-populated by the reversal pass when `is_reversed` is `true`. Leave as empty string in your output.
   - lights_and_camera: Camera and lighting specs
   - dialogue: Character speech (if any)
   - duration: Expected seconds
 
 ---
-### Scene 1
-- **scene_id**: 1
-- **location**: A sterile, clinical laboratory inside a chrome dome.
-- **pre_action_description**: The scientist, a mechanical being, has prepared his tools for the ultimate experiment: a self-dissection of his own clockwork brain to understand the nature of consciousness before the universe reaches a final, silent equilibrium. The air is still, the moment heavy with philosophical weight.
-- **panels**:
-  - **panel_index**: 1
-    **visual_start**: A first-person view looking down at a polished titanium tray. On it, a set of impossibly precise and delicate tools are arranged in perfect order. They look like a cross between surgical instruments and a watchmaker's kit. The scientist's own hands, articulated chrome fingers with brass joints, are visible at the bottom of the frame, motionless above the tray. The reflection of sterile overhead lights gleams on every metallic surface.
-    **visual_end**: The scientist's right hand has moved, its chrome fingers now hovering directly over a slender, pen-like tool with a fine, vibrating tip. The other tools remain untouched. The fingers are poised just a millimeter above the tool, the decision made, the action about to be committed. The reflection in the tray warps slightly with the hand's new position. The left hand remains still, resting on the edge of the table.
-    **motion_prompt**: At 0 seconds, the camera holds a steady first-person view of the tool tray. At the 2-second mark, the scientist's right hand begins to move slowly and deliberately from the bottom of the frame. The motion is smooth, without any hesitation, showcasing the character's resolve. The chrome fingers drift over the other instruments before coming to a stop directly above the target tool at the 5-second mark. The fingers spread slightly, preparing to grasp it. The shot holds for the remaining seconds, building tension.
-    **lights_and_camera**: FPOV. Bright, shadowless, clinical lighting from an overhead source. Macro focus on the tools, with the scientist's hands in the foreground having a shallow depth of field.
-    **dialogue**:
-    **duration**: 7
-  - **panel_index**: 2
-    **visual_start**: The scientist's right hand is poised over the slender tool. His chrome fingers are slightly open, ready to grasp. The focus is sharp on the intricate design of his knuckles and the polished surface of the instrument below. The background is a soft blur of the metallic laboratory.
-    **visual_end**: The scientist's right hand has now securely grasped the tool. His fingers are wrapped firmly around its textured handle. He has lifted it just a centimeter off the tray, its fine tip catching the overhead light. The movement is precise, without a single sound other than the faint, almost imperceptible whir of the joints in his hand. The empty space on the tray where the tool once lay is now starkly visible.
-    **motion_prompt**: Starting at 0 seconds, the shot is static. At the 1-second mark, the chrome fingers of the right hand descend with mechanical precision. At 2 seconds, they make contact with the tool, wrapping around it smoothly. From 3 to 5 seconds, the hand lifts the tool vertically, clearing the tray. The motion is incredibly stable, like a piece of high-tech machinery. For the final seconds, the hand holds the tool perfectly still in mid-air, allowing the viewer to appreciate its delicate and complex design.
-    **lights_and_camera**: Extreme Close-Up (ECU) on the hand and tool. Rack focus from the fingertips to the tool's tip as it is lifted. Lighting remains clinical and bright.
-    **dialogue**:
-    **duration**: 7
-  - **panel_index**: 3
-    **visual_start**: The FPOV shot now looks up from the tray towards a large, perfectly polished chrome panel on the wall, which acts as a mirror. The reflection shows the upper torso of the mechanical scientist. His head is a smooth, metallic dome, with optical sensors for eyes that glow with a soft, analytical blue light. The right hand holding the tool is just coming into the bottom of the reflected view.
-    **visual_end**: The scientist's reflection is now fully centered. He has raised the tool-wielding right hand so it is level with his head in the reflection. He appears to be looking at his own reflection, his optical sensors unblinking. It is a moment of final contemplation before the irreversible act. The tool's tip gleams menacingly close to the reflected cranium.
-    **motion_prompt**: At 0 seconds, the camera begins a slow, deliberate tilt upwards from the tool tray to the reflective wall panel. The tilt takes 3 seconds, smoothly revealing the scientist's reflection. From the 3-second mark to the 6-second mark, the scientist's right arm, holding the tool, rises into the frame and stops when the tool is parallel with his temple in the reflection. The reflection's gaze is steady, focused, and intense. The shot holds this tense composition for the final second.
-    **lights_and_camera**: FPOV with a slow vertical tilt. The reflection should be crystal clear, with no distortion. The depth of field is deep, keeping both the reflection and the edges of the chrome panel in focus.
-    **dialogue**:
-    **duration**: 7
-  - **panel_index**: 4
-    **visual_start**: A tight, over-the-shoulder shot. We see the back of the scientist's metallic head and his right hand bringing the slender, vibrating tool towards a nearly invisible seam just above where an ear would be on a human. The tool is an inch away. The focus is on the tip of the tool and the polished surface of the cranium.
-    **visual_end**: The tip of the tool has made contact with the seam on the scientist's head. There is no visible damage, but its purpose is clear. The scientist's chrome fingers are tensed slightly around the tool's handle, applying minimal but precise pressure. The rest of his body is perfectly still.
-    **motion_prompt**: The shot starts static at 0 seconds, with the tool poised. Over the course of 4 seconds, the scientist's right hand moves forward with microscopic precision, closing the final inch of distance between the tool and his head. The movement is incredibly slow and controlled. At the 4-second mark, the tool makes contact. There is a very subtle vibration effect from the tool upon contact. The camera holds this point of contact for the remaining 3 seconds, emphasizing the critical, irreversible nature of the action.
-    **lights_and_camera**: Over-the-shoulder shot, tight framing. Macro focus on the point of contact. The lighting creates a sharp, thin highlight along the tool and the cranial seam.
-    **dialogue**:
-    **duration**: 7
-  - **panel_index**: 5
-    **visual_start**: An extreme close-up on the point of contact. The tool's vibrating tip is pressed against the hairline seam on the polished metal cranium. The metal is seamless and perfect.
-    **visual_end**: A thin, precise incision has appeared along the seam. A faint wisp of pressurized air, shimmering like heat haze, escapes from the newly created opening. The tool has traced a quarter of a circle, leaving a perfectly cut line in its wake. The sound is a barely audible, high-frequency hiss.
-    **motion_prompt**: At 0 seconds, the shot is a static macro view. At the 1-second mark, the tool begins to move, its tip glowing with a subtle energy. From 1 to 6 seconds, it glides smoothly along the circular seam, cutting the metal. The camera follows the tip of the tool. As it cuts, a minute gap is created, and a shimmering vapor, representing the escaping compressed air, is released. The motion is fluid and exact. At 6 seconds, the tool stops, having completed a section of the cut.
-    **lights_and_camera**: ECU/Macro shot. The lighting needs to be precise to catch the shimmering effect of the escaping air. A slight rack focus follows the cutting tip.
-    **dialogue**:
-    **duration**: 6
-  - **panel_index**: 6
-    **visual_start**: The tool has finished tracing a perfect circle on the side of the scientist's head. The right hand moves the tool away, out of frame. The left hand, previously unseen in this proximity, comes into frame, its chrome fingertips approaching the newly cut circular plate.
-    **visual_end**: The fingertips of the left hand are now pressed against the circular plate. Tiny, almost invisible micro-suction cups on the fingertips have activated, gripping the plate. The plate has been lifted by a few millimeters, breaking the final seals. A more significant, but still controlled, plume of shimmering air escapes from the gap.
-    **motion_prompt**: The shot begins with the completed incision. At 0 seconds, the cutting tool zips out of the frame. At the 1-second mark, the scientist's left hand enters the frame from the bottom left. The fingers are slightly curled. From 2 to 4 seconds, the hand moves carefully until its fingertips align perfectly with the cut plate. At 5 seconds, the fingers press down gently, and a subtle light effect indicates the suction has engaged. At 6 seconds, the fingers lift, pulling the plate up and away from the cranium just slightly.
-    **lights_and_camera**: Close-up shot, angled to see the gap opening. The lighting should highlight the escaping pressurized air against the dark, intricate machinery that is about to be revealed.
-    **dialogue**:
-    **duration**: 7
-  - **panel_index**: 7
-    **visual_start**: The scientist's left hand has a firm grip on the circular cranial plate, which is lifted just a few millimeters from the opening. Through the gap, we see a tantalizing glimpse of impossibly complex, moving golden clockwork machinery, bathed in a soft internal light.
-    **visual_end**: The left hand has fully removed the plate and is moving it out of frame. The opening is now completely exposed, revealing the scientist's brain: a breathtakingly intricate sphere of spinning golden gyroscopes, interlocking gears, and crystalline conduits through which shimmering currents of air flow like water. The machinery whirs with a soft, harmonious sound.
-    **motion_prompt**: At 0 seconds, the shot holds on the partially opened cranium. From 1 to 4 seconds, the left hand lifts the plate clear of the head and moves it steadily downwards and out of the frame. As the plate moves, the camera performs a slow push-in, moving into the opening to get a clearer view of the clockwork brain inside. The reveal is gradual and awe-inspiring. From 5 to 7 seconds, the camera holds on the fully revealed, functioning mechanical brain.
-    **lights_and_camera**: Close-up, slow push-in. The primary light source now comes from within the brain itself—a warm, golden glow that contrasts with the lab's cold, white light.
-    **dialogue**:
-    **duration**: 7
-  - **panel_index**: 8
-    **visual_start**: A full-frame, breathtaking macro shot of the clockwork brain in operation. Miniature golden gears spin in complex patterns. Tiny pistons pump rhythmically. Through transparent, crystal-like tubes, we can see patterns of light and shimmering air—the physical manifestation of thought and consciousness—flowing and eddying.
-    **visual_end**: The camera has pushed in even closer on a specific region of the brain. We see a cluster of gears and levers suddenly shift their pattern, a cascade of motion rippling through the area. The flow of shimmering air through the conduits intensifies and changes direction, representing a specific thought or memory being accessed by the scientist.
-    **motion_prompt**: This is a pure visual exploration. At 0 seconds, the camera is in a wide macro shot of the entire brain mechanism. From 0 to 5 seconds, it executes a very slow, smooth drift inwards towards a particularly active-looking cluster of machinery. The focus racks gently to follow the intricate layers of the clockwork. At the 5-second mark, a specific, synchronized mechanical action occurs in the focus area—a series of levers flip, causing the airflow to visibly reroute. This is the brain actively thinking about its next move.
-    **lights_and_camera**: Extreme Macro shot. The lighting is entirely internal, emanating from the golden machinery. Use a very shallow depth of field to emphasize the infinite complexity and layers of the mechanism.
-    **dialogue**:
-    **duration**: 8
-  - **panel_index**: 9
-    **visual_start**: The shot pulls back slightly to a close-up of the exposed brain. The scientist's right hand, now holding a different tool—a delicate probe with a multi-lensed scope at its tip—enters the frame. The probe is held motionless, inches away from the whirring golden machinery.
-    **visual_end**: The probe has moved closer, its tip now hovering just millimeters above a specific spinning gyroscope in the clockwork brain. The scientist is about to begin the diagnostic, to probe the very nature of his own consciousness. The shot freezes on this moment of ultimate scientific intrusion and self-discovery, the gleaming probe ready to touch the soul in the machine.
-    **motion_prompt**: At 0 seconds, the shot shows the exposed brain. At the 2-second mark, the diagnostic probe, held by the right hand, enters the top right of the frame. The movement is slow, steady, and immensely careful. From 3 to 7 seconds, the probe advances towards the brain, its tip navigating the complex moving parts without touching them. It comes to a final, suspenseful halt just above a critical-looking component at the 7-second mark. The scene ends here, on the precipice of the experiment's true beginning.
-    **lights_and_camera**: Close-up shot. The focus is on the tip of the probe, with the complex, moving brain just beyond it in a beautiful, soft focus. The probe reflects the golden light of the brain's machinery.
-    **dialogue**:
-    **duration**: 8
+```json
+{
+  "scene_id": 1,
+  "location": "An artificial alien arena with fine blue sand, enclosed by a shimmering, semi-transparent force field dome. The 'sky' within the dome is a starless, deep violet.",
+  "pre_action_description": "Bob Carson, a human patrol pilot in his late 30s, has been violently teleported from his cockpit. He finds himself in a surreal alien environment, chosen by a god-like entity to fight in a duel that will decide humanity's fate. He is confused, terrified, and unarmed.",
+  "panels": [
+    {
+      "panel_index": 1,
+      "visual_start": "Extreme close-up on Bob Carson's face. His eyes are squeezed shut, his expression a mask of confusion and pain from the teleportation. Grains of brilliant blue sand are stuck to his cheek and forehead. His standard grey pilot jumpsuit is slightly scuffed. The lighting is dim and surreal, casting a violet hue on his skin. He is kneeling on one knee, completely still.",
+      "visual_end": "Bob's eyes are now wide open, pupils dilated with shock and disbelief. His head is slightly raised, taking in the impossible surroundings. His mouth is slightly agape. The focus has pulled back slightly, revealing more of the strange blue sand around him. His hands are now braced on the ground to steady himself.",
+      "motion_prompt": "At the 0-second mark, the shot is an extreme close-up on Bob's tightly shut eyes. From 0 to 2 seconds, his eyelids flutter and then slowly open, revealing pupils that constrict and then dilate in the strange light. From 2 to 4 seconds, his head lifts slowly, his expression shifting from pain to utter shock. From 4 to 6 seconds, the camera performs a subtle, slow pull-back, revealing his hands pressing into the blue sand as he steadies his kneeling form.",
+      "lights_and_camera": "Lighting: A single, diffused, violet light source from directly above, mimicking an artificial sky. Camera: Starts as an extreme close-up on the face, then slowly dollies backward to a medium close-up. Shallow depth of field, focusing entirely on Bob.",
+      "dialogue": "",
+      "duration": 7
+    },
+    {
+      "panel_index": 2,
+      "visual_start": "Low-angle shot from behind Bob's shoulder. He is still on one knee, looking forward. The frame is dominated by the vast, empty expanse of the arena floor, covered in pristine, deep blue sand that ripples like water. In the far distance, the horizon curves upwards, hinting at the dome structure. The air is clear and still. The scene is desolate and intimidating.",
+      "visual_end": "Bob is now standing, albeit unsteadily. His head has panned from left to right, his gaze following the shimmering curve of the force field dome that encapsulates the arena. The camera has risen with him, maintaining the over-the-shoulder perspective. His posture is defensive, shoulders hunched, as he fully comprehends his confinement.",
+      "motion_prompt": "At 0 seconds, Bob is kneeling. Between 0 and 3 seconds, he pushes himself up with his right hand, rising slowly and unsteadily to his feet. His body language screams vulnerability. From 3 to 7 seconds, his head pans slowly from the far left to the far right, his eyes tracing the horizon line where the blue sand meets the shimmering, barely visible force field. The camera smoothly follows his gaze, creating a panoramic reveal of the arena's scale.",
+      "lights_and_camera": "Lighting: Consistent violet top-down light, creating long, faint shadows. Camera: Low-angle, over-the-shoulder shot. The camera rises vertically as Bob stands and then pans to follow his gaze. Deep depth of field to emphasize the arena's vastness.",
+      "dialogue": "",
+      "duration": 8
+    },
+    {
+      "panel_index": 3,
+      "visual_start": "A telephoto shot from Bob's POV. In the center of the frame, about 200 meters away, is a perfect, featureless sphere. It is about two meters in diameter, with a matte black, non-reflective surface that seems to absorb the light. It is perfectly still, half-buried in the blue sand, its presence utterly alien and menacing. The air shimmers slightly with heat or energy around it.",
+      "visual_end": "The shot has zoomed in slightly, tightening the focus on the spherical alien. It remains motionless, but the sense of it being an observer, a predator, has intensified. Bob's breathing is now audible, sharp and panicked. The focus might rack slightly, blurring the foreground (Bob's unseen position) and making the sphere terrifyingly crisp and clear.",
+      "motion_prompt": "This is a static shot with a very slow, almost imperceptible push-in (zoom). At 0 seconds, the sphere is framed in the distance. Over the course of 7 seconds, the camera lens slowly zooms in, increasing the sphere's size in the frame by about 15%. This creates a powerful sense of dread and focus. The only other movement is the subtle shimmer of energy around the sphere. Add the sound of Bob's sharp, fearful intake of breath at the 4-second mark.",
+      "lights_and_camera": "Lighting: Consistent ambient violet light. Camera: POV shot using a telephoto lens to compress the distance. A very slow, creeping zoom-in. The focus is sharp on the sphere.",
+      "dialogue": "",
+      "duration": 7
+    },
+    {
+      "panel_index": 4,
+      "visual_start": "Medium shot of Bob. He is staring forward at the unseen sphere, his face a mixture of fear and confusion. His body is tense. The background is the out-of-focus blue sand. He is completely still, as if frozen by the sight of his opponent.",
+      "visual_end": "Bob's face contorts in pain. He flinches violently, his eyes slamming shut as his right hand flies up to clutch the side of his head. A psychic presence has just invaded his mind. His body recoils as if struck by a physical blow, staggering back a single step.",
+      "motion_prompt": "For the first 2 seconds, Bob is completely still, just staring. At the 2-second mark, his eyes suddenly widen, then slam shut as his entire body flinches. Simultaneously, his right hand comes up to grip his right temple, fingers digging in. Between 2 and 4 seconds, he stumbles back one step, his head shaking slightly as if trying to dislodge an unwanted voice. From 4 to 6 seconds, he remains in this pained posture, grimacing.",
+      "lights_and_camera": "Lighting: Consistent. Camera: Medium shot, chest-up. The camera performs a rapid, jarring dolly-in of a few inches the moment he flinches to amplify the impact of the psychic attack. Shallow depth of field.",
+      "dialogue": "(Telepathic, booming voice, not spoken) HUMAN. YOUR OPPONENT AWAITS. VICTORY ENSURES YOUR SPECIES' SURVIVAL. FAILURE... ENSURES ITS EXTINCTION.",
+      "duration": 6
+    },
+    {
+      "panel_index": 5,
+      "visual_start": "Bob has lowered his hand from his head, his expression now one of grim understanding and terror. He is looking towards the edge of the arena. The camera is positioned behind him, looking past his shoulder at the shimmering, curtain-like force field about 30 feet away. It subtly distorts the violet emptiness behind it.",
+      "visual_end": "Bob has taken a few hesitant steps towards the force field. He has stopped just short of it, his right hand raised cautiously as if to touch it. A few grains of blue sand, kicked up by his movement, drift towards the barrier and vaporize with tiny, silent flashes of light just before contact, demonstrating its lethal nature.",
+      "motion_prompt": "At 0 seconds, Bob is standing still, looking at the force field. From 1 to 4 seconds, he walks slowly and cautiously towards it, his gait uncertain. The camera tracks with him. At the 4-second mark, he stops about a foot away from the barrier. From 4 to 6 seconds, he slowly raises his right hand, palm forward, towards the shimmering energy. At the 5.5-second mark, a small puff of blue sand he kicked up hits the field and flashes out of existence.",
+      "lights_and_camera": "Lighting: The shimmering force field is now a key light source, casting a faint, flickering white light onto Bob's front. Camera: Over-the-shoulder tracking shot that moves with Bob. Focus is on the force field and the vaporizing sand.",
+      "dialogue": "",
+      "duration": 7
+    },
+    {
+      "panel_index": 6,
+      "visual_start": "Wide shot. Bob has turned away from the force field and is now scanning the arena floor. He looks small and alone in the vast blue landscape. The black sphere is visible in the far background, still motionless. The composition emphasizes his isolation and the lack of options. His eyes are darting back and forth, searching for anything.",
+      "visual_end": "Bob's search stops. His gaze is now locked onto a point on the ground a few meters to his left. The camera has pushed in slightly, and his expression has shifted from desperation to a flicker of grim hope. He has found something. His body language changes, becoming more focused and purposeful.",
+      "motion_prompt": "At 0 seconds, the camera shows Bob in a wide shot, his head turning left and right as he scans the empty arena. From 0 to 3 seconds, his movements are frantic and desperate. At the 3.5-second mark, his head snaps to the left and freezes. His eyes lock onto something off-screen. From 4 to 7 seconds, the camera performs a slow push-in, moving from a wide shot to a medium-wide shot, as his posture changes from lost to focused. He takes a single, deliberate step towards what he has seen.",
+      "lights_and_camera": "Lighting: Standard violet top-down light. Camera: Starts as a wide shot, then a slow dolly-in to a medium-wide, tightening the frame on Bob and building anticipation.",
+      "dialogue": "",
+      "duration": 8
+    },
+    {
+      "panel_index": 7,
+      "visual_start": "Close-up shot of a metallic rod, about four feet long, lying half-buried in the blue sand. It's a simple, primitive weapon, like a sharpened spear without a decorative head. It has a dull, pitted surface, suggesting it's ancient or crudely made. Bob's boots are visible at the edge of the frame as he stands over it.",
+      "visual_end": "Bob is now kneeling. His right hand, fingers trembling slightly, has closed firmly around the center of the metallic rod. Grains of blue sand cascade off the weapon as he lifts it slightly from its resting place. The grip is tight, knuckles white, showing a mix of fear and resolve. The focus is sharp on his hand and the weapon's texture.",
+      "motion_prompt": "At 0 seconds, the shot is static on the weapon in the sand. At the 1-second mark, Bob's legs enter the frame as he kneels down. From 2 to 5 seconds, his right hand slowly enters the frame from the top, hesitating for a moment before decisively gripping the rod. The motion should not be smooth; it should be the action of a man who is not a natural warrior. From 5 to 7 seconds, he lifts the weapon an inch, his grip tightening.",
+      "lights_and_camera": "Lighting: Consistent. Camera: A low-angle close-up, focused on the weapon. A slight focus pull from the tip of the weapon to his hand as he grips it.",
+      "dialogue": "",
+      "duration": 7
+    },
+    {
+      "panel_index": 8,
+      "visual_start": "The shot is from Bob's POV again, looking towards the sphere. He is holding the metallic rod, and its tip is visible in the bottom of the frame. The sphere is where it was before, still and silent. The scene is tense with anticipation. A moment of quiet before the storm.",
+      "visual_end": "The sphere is no longer still. It has risen silently from the sand and is now hovering a foot above the ground. It begins to move forward, gliding smoothly and directly towards Bob's position. It doesn't roll; it floats, which makes it even more unnatural and menacing. Its speed is deliberate, not yet a charge, but an inexorable advance.",
+      "motion_prompt": "The first 2 seconds are a tense, static shot of the motionless sphere from Bob's POV. At the 2-second mark, the sphere lifts vertically from the sand in a smooth, silent motion. From 3 to 8 seconds, it begins to glide forward, directly towards the camera, picking up speed gradually. The sense of threat should escalate throughout the shot as the sphere grows larger in the frame. The tip of Bob's weapon in the foreground should tremble slightly.",
+      "lights_and_camera": "Lighting: Consistent. Camera: POV shot. The camera should remain perfectly still, emphasizing that Bob is frozen in place as the threat begins to move. The approaching sphere creates a natural zoom effect.",
+      "dialogue": "",
+      "duration": 8
+    },
+    {
+      "panel_index": 9,
+      "visual_start": "A low-angle medium shot of Bob. He is holding the metallic rod in a clumsy, two-handed grip, like a baseball bat rather than a spear. His knees are slightly bent, his stance wide and awkward. His face is pale, sweat beading on his brow. He is terrified but his eyes are locked forward, focused on the approaching threat.",
+      "visual_end": "Bob adjusts his grip on the weapon, shifting it into a more functional, defensive stance with the pointed end aimed forward. His knuckles are white. He takes a deep, ragged breath, steeling himself for the confrontation. His fear is still palpable, but it's now mixed with a grim determination. He is no longer just a victim; he is ready to fight back.",
+      "motion_prompt": "At 0 seconds, Bob is in his awkward, terrified stance. From 1 to 4 seconds, he shuffles his feet, finding better footing in the sand, and repositions the rod, holding it with his right hand near the base and his left hand further up, guiding the point forward. It's a fumbling but necessary adjustment. From 4 to 6 seconds, he plants his feet firmly. From 6 to 7 seconds, his chest visibly expands as he takes a deep, shaky breath. His eyes narrow with focus.",
+      "lights_and_camera": "Lighting: The approaching sphere might be casting a subtle shadow that begins to fall over Bob. Camera: Low-angle medium shot. The camera is static, emphasizing his defiant stand. The focus is sharp on his face, capturing the shift from pure terror to resolve.",
+      "dialogue": "",
+      "duration": 8
+    }
+  ]
+}
 ```

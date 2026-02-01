@@ -204,13 +204,15 @@ SCENE_SCHEMA = {
                                 "visual_start": {"type": "string"},
                                 "visual_end": {"type": "string"},
                                 "motion_prompt": {"type": "string"},
+                                "is_reversed": {"type": "boolean", "description": "True if this panel's action must be revealed in reverse chronological order (e.g. fog clears to reveal a character). When true, visual_start describes the OBSCURED/FINAL state seen first by the viewer, and visual_end describes the REVEALED/ORIGIN state seen last."},
+                                "motion_prompt_reversed": {"type": "string", "description": "Populated ONLY when is_reversed is true. Describes the reversed playback motion: how the scene should visually transition from visual_start (obscured) to visual_end (revealed) as perceived by the viewer. Empty string when is_reversed is false."},
                                 "lights_and_camera": {"type": "string"},
                                 "dialogue": {"type": "string"},
                                 "caption": {"type": "string"},
                                 "duration": {"type": "integer"},
                                 "references": {"type": "array", "items": {"type": "string"}},
                             },
-                            "required": ["panel_index", "visual_start", "visual_end", "motion_prompt", "lights_and_camera", "dialogue", "caption", "duration", "references"]
+                            "required": ["panel_index", "visual_start", "visual_end", "motion_prompt", "is_reversed", "motion_prompt_reversed", "lights_and_camera", "dialogue", "caption", "duration", "references"]
                         }
                     }
                 },
@@ -489,7 +491,103 @@ SCENE TO ANALYZE:
     return _call_api()
 
 
-def analyze_scenes_master(text: str, prompts: dict, config: dict):
+def apply_reversal_pass(scene: dict, prompts: dict, config: dict) -> dict:
+    """
+    Reversal pre-render pass.
+    
+    For every panel where is_reversed == True:
+      - Swaps visual_start ↔ visual_end so that:
+            visual_start = what the viewer sees FIRST  (the obscured / foggy / empty state)
+            visual_end   = what the viewer sees LAST   (the fully revealed state, matching references)
+      - Calls the LLM to generate motion_prompt_reversed that describes the
+        forward-in-time viewer experience (fog dissipates → character appears).
+    
+    Panels with is_reversed == False are untouched.
+    """
+    reversed_panels = [p for p in scene.get('panels', []) if p.get('is_reversed', False)]
+    if not reversed_panels:
+        return scene  # Nothing to do
+
+    print(f"    🔄 Reversal pass: {len(reversed_panels)} panel(s) flagged in scene {scene.get('scene_id', '?')}")
+
+    setting_context = prompts.get('setting', '')
+    scenery_template = prompts.get('scenery', '')
+
+    # --- Step 1: swap start/end in-place ---
+    for p in reversed_panels:
+        original_start = p['visual_start']
+        original_end   = p['visual_end']
+        # After swap:
+        #   visual_start = the OBSCURED state the viewer sees first
+        #   visual_end   = the REVEALED state the viewer sees last (matches refs)
+        p['visual_start'] = original_end   # chronologically last → viewer sees first
+        p['visual_end']   = original_start # chronologically first → viewer sees last (the reveal)
+
+    # --- Step 2: LLM generates motion_prompt_reversed for each swapped panel ---
+    panels_context = json.dumps(reversed_panels, ensure_ascii=False, indent=2)
+
+    prompt = f"""
+You are a Master Cinematographer writing motion prompts for AI video generation.
+
+Some panels in this scene use REVERSE REVEAL: the action was originally written in
+chronological order, but the VIEWER must see it in reverse. The visual_start and
+visual_end fields have already been swapped so that:
+  - visual_start = what the camera sees at t=0  (the obscured / empty / hidden state)
+  - visual_end   = what the camera sees at the end (the fully revealed state)
+
+Your job: for each panel below, write a single motion_prompt_reversed that describes
+how the scene transitions FROM visual_start TO visual_end as the VIEWER watches it
+in real time. Think of it as "un-doing" the original action — fog clears, objects
+materialise, a hand withdraws to reveal what it was holding, etc.
+
+Rules:
+- The motion must be physically plausible as a forward-playing clip.
+- Duration: {config['format'].get('panel_duration_s', 7)} seconds total.
+- Use timestamps (e.g. "At 2 seconds…") for clarity.
+- Be very detailed (100+ words). The AI video model needs precision.
+- Do NOT invent new elements — only describe the transition between the two provided states.
+- Preserve all lighting and camera details from lights_and_camera.
+- Output ONLY a JSON array with the same panel_index values. Each object must have
+  exactly two keys: "panel_index" (integer) and "motion_prompt_reversed" (string).
+
+{setting_context}
+
+PANELS TO PROCESS:
+{panels_context}
+"""
+
+    REVERSAL_SCHEMA = {
+        "type": "array",
+        "items": {
+            "type": "object",
+            "properties": {
+                "panel_index": {"type": "integer"},
+                "motion_prompt_reversed": {"type": "string"}
+            },
+            "required": ["panel_index", "motion_prompt_reversed"]
+        }
+    }
+
+    @retry_on_errors(max_retries=3, backoff_factor=2)
+    def _call_api():
+        refine_limiter.acquire()
+        return generate_json_with_schema(prompt, REVERSAL_SCHEMA)
+
+    result = _call_api()
+
+    if result:
+        # Index the LLM output by panel_index for O(1) lookup
+        reversed_map = {item['panel_index']: item['motion_prompt_reversed'] for item in result}
+        for p in scene.get('panels', []):
+            if p.get('is_reversed', False) and p['panel_index'] in reversed_map:
+                p['motion_prompt_reversed'] = reversed_map[p['panel_index']]
+                print(f"      ✅ Panel {p['panel_index']}: motion_prompt_reversed generated")
+            elif p.get('is_reversed', False):
+                print(f"      ⚠️  Panel {p['panel_index']}: no motion_prompt_reversed returned by LLM")
+    else:
+        print(f"      ❌ Reversal LLM call returned empty result for scene {scene.get('scene_id', '?')}")
+
+    return scene
     episodes = analyze_episodes_master(text, prompts, config)
     auto_cast_characters(json.dumps(episodes, indent=2), prompts, config)
 
@@ -540,6 +638,12 @@ def analyze_scenes_master(text: str, prompts: dict, config: dict):
             for panel in refined_scene['panels']:
                 idx += 1
                 panel['panel_index'] = idx
+                # Ensure defaults for new fields if LLM omitted them
+                panel.setdefault('is_reversed', False)
+                panel.setdefault('motion_prompt_reversed', '')
+
+            # --- Reversal pass: swap start/end and generate motion_prompt_reversed ---
+            refined_scene = apply_reversal_pass(refined_scene, prompts, config)
 
             all_scenes.append(refined_scene)
 
@@ -608,6 +712,7 @@ Location: {scene['location']}
 Setup: {scene.get('pre_action_description','')}
 
 No captions!
+**IMPORTANT**: Ignore instructions about naked - man is in clothes always
 """
 
     # Описания панелей
@@ -618,11 +723,19 @@ No captions!
 
     for p in scene['panels']:
         combined_prompt += f"\nPanel {p['panel_index']}:\n"
+        if p.get('is_reversed', False):
+            combined_prompt += f"  [REVERSE REVEAL — viewer sees START first, then action unfolds to END]\n"
         if is_dual_grid:
             combined_prompt += f"  START (TOP): {p.get('visual_start', '')}\n"
             combined_prompt += f"  END (BOTTOM): {p.get('visual_end', '')}\n"
-            if 'motion_prompt' in p:
-                combined_prompt += f"  Motion: {p['motion_prompt']}\n"
+            # Use reversed motion prompt when available, fall back to standard
+            active_motion = (
+                p.get('motion_prompt_reversed', '') 
+                if p.get('is_reversed', False) and p.get('motion_prompt_reversed') 
+                else p.get('motion_prompt', '')
+            )
+            if active_motion:
+                combined_prompt += f"  Motion: {active_motion}\n"
         else:
             combined_prompt += f"  Visual: {p.get('visual_start', p.get('visual_end', ''))}\n"
 
@@ -654,7 +767,7 @@ No captions!
                         'response_modalities': ['Image'],
                         'temperature': 0.65,
                         'top_p': 0.85,
-                        'seed': 37,
+                        'seed': 42,
                         'image_config': {
                             'aspect_ratio': aspect_ratio,
                             'image_size': resolution
