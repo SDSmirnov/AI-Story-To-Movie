@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 TEXT_MODEL = os.getenv('AI_TEXT_MODEL', "gemini-2.5-pro")
 IMAGE_MODEL = os.getenv('AI_IMAGE_MODEL', "gemini-3-pro-image-preview")
 
-MAX_WORKERS = int(os.getenv('AI_CONCURRENCY', '1'))
+MAX_WORKERS = int(os.getenv('AI_CONCURRENCY', '10'))
 SEED = int(os.getenv('AI_SEED', '42'))
 IMAGE_TEMPERATURE = float(os.getenv('AI_IMAGE_TEMP', '0.65'))
 IMAGE_TOP_P = float(os.getenv('AI_IMAGE_TOP_P', '0.85'))
