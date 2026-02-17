@@ -80,10 +80,21 @@ async def generate_concurrently(scenes):
     results = await tqdm.gather(*tasks, desc="Processing tasks")
 
     for scene, result in zip(scenes, results):
-        print(f"{scene['output']}: {result.url}")
-        video_response = requests.get(result.url)
-        with open(scene['output'], 'wb') as f:
-            f.write(video_response.content)
+        try:
+            print(f"{scene['output']}: {result.url}")
+            video_response = requests.get(result.url)
+            with open(scene['output'], 'wb') as f:
+                f.write(video_response.content)
+        except Exception as e:
+            print(scene, e)
 
 scenes = load_scenes(sys.argv[1])
-asyncio.run(generate_concurrently(scenes))
+n = 0
+batch_size = 10
+import time
+while n < len(scenes):
+    print(f"Batch {n}:{n+batch_size-1}")
+    asyncio.run(generate_concurrently(scenes[n:(n+batch_size)]))
+    n += batch_size
+    print(f"Sleeping 30...")
+    time.sleep(30)

@@ -26,8 +26,8 @@ IMAGE_MODEL = os.getenv('AI_IMAGE_MODEL', "gemini-3-pro-image-preview")
 
 MAX_WORKERS = int(os.getenv('AI_CONCURRENCY', '10'))
 SEED = int(os.getenv('AI_SEED', '42'))
-IMAGE_TEMPERATURE = float(os.getenv('AI_IMAGE_TEMP', '0.65'))
-IMAGE_TOP_P = float(os.getenv('AI_IMAGE_TOP_P', '0.85'))
+IMAGE_TEMPERATURE = float(os.getenv('AI_IMAGE_TEMP', '0.35'))
+IMAGE_TOP_P = float(os.getenv('AI_IMAGE_TOP_P', '0.6'))
 
 api_key = os.getenv('IMG_AI_API_KEY', '')
 if not api_key:
@@ -740,8 +740,8 @@ def generate_combined_grid(scene: dict, scene_id: int, prompts: dict, config: di
 
 Location: {scene['location']}
 Setup: {scene.get('pre_action_description','')}
-
-No captions!
+CONSISTENCY RULE: All instances of the same character across all panels must have IDENTICAL face, hair, clothing, body proportions.
+NO CAPTIONS!
 """
 
     # Описания панелей
