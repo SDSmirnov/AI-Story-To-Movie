@@ -89,7 +89,7 @@ def main():
     group.add_argument('--all', action='store_true', help='Обработать все сцены')
     
     parser.add_argument('--panels', type=int, nargs='+', help='Конкретные панели (требует --scene с одной сценой)')
-    parser.add_argument('--frame', choices=['start', 'end', 'both'], default='both',
+    parser.add_argument('--frame', choices=['start', 'static', 'end', 'both'], default='both',
                        help='Какие фреймы обрабатывать')
     parser.add_argument('--custom-prompts', action='store_true',
                        help='Использовать custom_prompts/')

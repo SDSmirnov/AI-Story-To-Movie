@@ -39,8 +39,8 @@ from PIL import Image
 # Конфигурация
 # ─────────────────────────────────────────────
 ANALYSIS_MODEL = os.getenv("AI_QA_MODEL", "gemini-2.5-flash")
-MAX_WORKERS = int(os.getenv("AI_QA_CONCURRENCY", "5"))
-MAX_REFS_PER_PANEL = int(os.getenv("AI_QA_MAX_REFS", "4"))
+MAX_WORKERS = int(os.getenv("AI_QA_CONCURRENCY", "20"))
+MAX_REFS_PER_PANEL = int(os.getenv("AI_QA_MAX_REFS", "6"))
 
 OUTPUT_DIR = Path("cinematic_render")
 META_FILE = OUTPUT_DIR / "animation_metadata.json"

@@ -184,10 +184,11 @@ SCREENPLAY_SCHEMA = {
                     "episode_id": {"type": "integer"},
                     "location": {"type": "string"},
                     "daytime": {"type": "string"},
-                    "raw_narrative": {"type": "string", "description": "Full narative from the original text which was used for this episode"},
-                    "screenplay_instructions": {"type": "string"},
+                    "raw_narrative": {"type": "string", "description": "Full narative from the original text which was used for this episode, do not shorted used text, it will be used for the context"},
+                    "visual_continuity_rules": {"type": "string", "description": "Visual continunity enforcement for the next episode to avoid discrepancies throughout the movie. Never tell 'same', instead pass full details for the visual state."},
+                    "screenplay_instructions": {"type": "string", "description": "Very detailed instructions"},
                 },
-                "required": ["episode_id", "location", "daytime", "raw_narrative", "screenplay_instructions"],
+                "required": ["episode_id", "location", "daytime", "raw_narrative", "screenplay_instructions", "visual_continuity_rules"],
             }
         }
     },
@@ -320,7 +321,7 @@ def generate_json_with_schema(prompt: str, schema: dict = None) -> Any:
         "temperature": 0.5,
         "response_mime_type": "application/json",
         "response_schema": schema,
-        "max_output_tokens": 64000,
+        "max_output_tokens": 128000,
         "system_instruction": SYSTEM_PROMPT,
         "response_modalities": ['Text'],
     }
@@ -341,7 +342,7 @@ def generate_single_reference(char: dict, setting_context: str, config: dict):
     if name in CHARACTER_IMAGES: return
 
     logger.info(f"  🎬 Новый актер: {name}")
-    ref_prompt = f"CINEMATIC REFERENCE FOR {char['type']}: {name}. {char['visual_desc']}. {setting_context[:1500]}. Close-up, neutral expression, uniform lighting, 8k."
+    ref_prompt = f"CINEMATIC REFERENCE FOR {char['type']}: {name}. {char['visual_desc']}. {setting_context}. Close-up, neutral expression, uniform lighting, 8k."
 
     if char.get('style_reference') and char['style_reference'] != name:
         safe_name = char['style_reference'].replace("/", "-").replace("'", " ").replace('"', '').replace(" ", "_").lower()
@@ -415,6 +416,8 @@ Text:
     new_chars = generate_json_with_schema(prompt, CHARACTER_SCHEMA)
     if not new_chars: return
 
+    setting_context = f"{casting_prompt_template} {setting_context}"
+
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
         executor.map(lambda char: generate_single_reference(char, setting_context, config), new_chars)
 
@@ -439,16 +442,19 @@ You write action, sound, and light. You adapt the novel to tell complete story, 
 ## RESPONSE STRUCTURE
 
 1. **Title and Logline.**
-2. **Character List** (with brief psychological profiles).
+2. **Character List** (with brief psychological profiles and visual details).
 3. **Screenplay** (broken down by scenes with dialogue and stage directions).
 4. **"NITPICKER" Protocol Report** (Quote → Complaint → Solution).
 
 LAUNCH INSTRUCTION: deliver text that makes the cinematographer itch to grab a camera.
 
-1. Quote raw narrative text verbatim for the context.
-2. Screenplay instructions will be used to generate cinematic prerolls for AI-driven animation.
+1. Quote raw narrative text verbatim for the context, do not shorten.
+2. Screenplay instructions will be used to generate cinematic prerolls for AI-driven animation. Be very direct and verbose/
 3. Each episode should cover from 30 to 50 seconds of real-time action.
-4. Total screen time for complete text must be at least 10 minutes.
+5. Add continuity rules for episodes, e.g. if in episode 3 hero puts on spacesuit, it should be noted in next episodes (4, 5, etc) until he takes it off.
+6. Episodes will be split for animation independently, so should have enough context.
+7. Your response MUST cover the full story from the beginning to the end, with approiximate 30 episodes, from the start to end
+
 
 {setting_context}
 
@@ -662,6 +668,8 @@ def analyze_scenes_master(text: str, prompts: dict, config: dict):
                         logger.error(e)
 
             episode = episodes_by_id[episode_counter]
+            prev_episode = {} if episode_counter <= 1 else episodes_by_id[episode_counter - 1]
+
             json_refs = {ref['name']: ref['video_visual_desc'] for ref in json_refs}
 
             episode_text = f"""
@@ -672,6 +680,10 @@ def analyze_scenes_master(text: str, prompts: dict, config: dict):
             VISUAL REFERENCES: {json.dumps(json_refs)}
 
             ENSURE THAT DESCRIPTIONS IN REFINED SCENE ALIGN WITH VISUAL REFERENCES.
+
+            ENSURE DETAILS IN REFINED SCENE ALIGN WITH THE PREVIOUS EPISODE FOR NARRATIVE CONTINUITY, FIX WHERE NEEDED:
+
+            <PREV_EPISODE_CONTEXT>{json.dumps(prev_episode, ensure_ascii=False, indent=2)}</PREV_EPISODE_CONTEXT>
             """
             batch_refinement.append((episode_counter, scene_counter, episode_text, prompts, config, all_scenes))
 

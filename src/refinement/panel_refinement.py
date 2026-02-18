@@ -217,13 +217,7 @@ def refine_panel(
     imagery_prompt = prompts.get('imagery', '')
     setting_context = prompts.get('setting', '')
     
-    # Определяем какое описание использовать
-    if frame_type == 'start':
-        visual_desc = panel.get('visual_start', '')
-    elif frame_type == 'end':
-        visual_desc = panel.get('visual_end', '')
-    else:  # static
-        visual_desc = panel.get('visual_start', panel.get('visual_end', ''))
+    visual_desc = panel.get('visual_start')
     
     key = f"{scene_id}_{panel_id}"
     if key in QUALITY_PROMPTS:
@@ -270,12 +264,6 @@ Setup: {scene.get('pre_action_description', '')}
 
 ## PANEL DESCRIPTION:
 {visual_desc}
-
-Camera & Lighting: {panel.get('lights_and_camera', '')}
-Motion: {panel.get('motion_prompt', '')}
-
-## DIALOGUE:
-{panel.get('dialogue', '')}
 
 ## INSTRUCTIONS:
 Generate a refined version of the original image that:
