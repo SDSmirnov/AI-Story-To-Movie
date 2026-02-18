@@ -309,6 +309,7 @@ def analyze_panel(
     if not visual_desc:
         visual_desc = panel_meta.get("visual_end", "")
 
+    prev_panels = [{'panel_index': p['panel_index'], 'visual_desc': p['visual_end']} for p in scene_meta.get('panels') if p['panel_index'] < panel_meta['panel_index']]
     prompt = f"""You are a QA supervisor for an AI film production pipeline.
 
 ## TASK
@@ -320,7 +321,11 @@ Scene ID: {scene_meta.get('scene_id')}
 Location: {scene_meta.get('location', 'N/A')}
 Setup: {scene_meta.get('pre_action_description', '')}
 
-## PANEL {panel_id} DESCRIPTION
+## PREVIOUS PANELS - FOR CONTEXT AND CONSISTENCY CHECKS
+<PREV_PANELS>{json.dumps(prev_panels, ensure_ascii=False, indent=2)}</PREV_PANELS>
+
+
+## ANALYZED PANEL {panel_id} DESCRIPTION
 Visual: {visual_desc}
 Camera/Lighting: {panel_meta.get('lights_and_camera', '')}
 Motion intent: {panel_meta.get('motion_prompt', '')[:300]}
@@ -347,9 +352,8 @@ Expected characters/objects: {', '.join(ref_names) if ref_names else 'None speci
 - A panel with beautiful composition but WRONG character face scores LOW on character_consistency.
 - Panels without character references (landscapes, objects) can score 0 on character_consistency
   without needing refinement for that reason.
+- Check narrative continuity 
 
-## Continuity Rules
-- Starting from Scene 8 to scene 23 all people in all scenes must wear a spherical, transparent, futuristic oxygen helmet with a metallic sealing collar, their face is completely visible.
 """
 
     contents: List[Any] = []
@@ -439,6 +443,7 @@ def process_scene(
             logger.warning(f"  ⚠️  Panel {pid} out of range (have {len(panel_images)} images)")
             continue
 
+        scene_id = scene['scene_id']
         panel_img = panel_images[pid - 1]
 
         logger.info(f"  🔍 Scene {scene_id}, Panel {pid} "

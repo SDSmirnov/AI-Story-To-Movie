@@ -46,6 +46,8 @@ SAFETY = [
     {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"}
 ]
 
+QUALITY_PROMPTS = {}
+
 # ==========================================
 # ФУНКЦИИ
 # ==========================================
@@ -59,6 +61,21 @@ def load_metadata() -> Dict:
     
     with open(metadata_path, 'r', encoding='utf-8') as f:
         return json.load(f)
+
+def load_quality_report() -> Dict:
+    """Загружает метаданные сцен"""
+    metadata_path = OUTPUT_DIR / "quality_report.json"
+    if not metadata_path.exists():
+        print(f"❌ Не найден файл метаданных: {metadata_path}")
+        exit(1)
+    
+    with open(metadata_path, 'r', encoding='utf-8') as f:
+        data = json.load(f)
+        for item in data['panels']:
+            scene_id = item['scene_id']
+            panel_id = item['panel_id']
+            key = f"{scene_id}_{panel_id}"
+            QUALITY_PROMPTS[key] = item['refinement_prompt']
 
 def load_prompts(use_custom: bool = False) -> Dict:
     """Загружает промпты стиля"""
@@ -208,6 +225,16 @@ def refine_panel(
     else:  # static
         visual_desc = panel.get('visual_start', panel.get('visual_end', ''))
     
+    key = f"{scene_id}_{panel_id}"
+    if key in QUALITY_PROMPTS:
+        panel_specific = f"""
+        ## IMPORTANT PANEL-SPECIFIC INSTRUCTIONS
+        {QUALITY_PROMPTS[key]}
+
+        """
+    else:
+        panel_specific = ""
+
     refinement_prompt = f"""{style_prompt}
 
 {imagery_prompt}
@@ -259,15 +286,20 @@ Generate a refined version of the original image that:
 5. CORRECTS location/object details to match reference images
 6. Maintains visual quality and cinematic feel
 
+{panel_specific}
+
 DO NOT change the composition or layout - only refine the visual details!
 No captions or text overlays!
 """
+
+    print(refinement_prompt)
 
     # 5. Генерация уточненного изображения
     refined_filename = f"{scene_id:03d}_{panel_id:02d}_{frame_type}_refined.png"
     refined_path = REFINED_DIR / refined_filename
     
     if refined_path.exists():
+        return True
         print(f"⚠️  Уточненная версия уже существует: {refined_path}")
         overwrite = input("Перезаписать? (y/n): ").lower()
         if overwrite != 'y':
@@ -380,6 +412,7 @@ def main():
     # Загрузка данных
     print("\n📂 Загрузка метаданных и промптов...")
     metadata = load_metadata()
+    load_quality_report()
     prompts = load_prompts(use_custom=args.custom_prompts)
     
     # Загрузка конфига (из metadata или дефолт)
