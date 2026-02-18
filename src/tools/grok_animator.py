@@ -90,7 +90,7 @@ async def generate_concurrently(scenes):
 
 scenes = load_scenes(sys.argv[1])
 n = 0
-batch_size = 10
+batch_size = 3
 import time
 while n < len(scenes):
     print(f"Batch {n}:{n+batch_size-1}")
