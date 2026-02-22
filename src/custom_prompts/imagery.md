@@ -1,30 +1,32 @@
-Конечно, вот заполненный шаблон `imagery.md` в соответствии с вашими спецификациями.
+Конечно, вот заполненный шаблон `imagery.md` для стиля "Vertical MicroDrama - Realistic Cinematic".
 
 # Image Generation Template
 
 ## Grid Layout
-Single 2K image with a 3x3 grid of panels
+Single 2K vertical image with a 3x3 grid.
 
 ## Technical Specs
-- **Aspect Ratio**: 16:9
+- **Aspect Ratio**: vertical 9:16 with 3x3 grid
 - **Resolution**: 2K
 - **Panels**: 9
 
 ## Panel Organization
-The 9 panels represent a continuous sequence of keyframes from a single, short animated clip. The sequence reads from left to right, top to bottom (Panel 1 is top-left, Panel 9 is bottom-right).
+A single vertical 3x3 grid. The panels represent a chronological sequence, read from left-to-right, top-to-bottom. Panel 1 is the beginning of the scene, and Panel 9 is the end. The entire grid tells a single, continuous micro-story within one location.
 
 ## Composition Rules
-1. Adhere to the Rule of Thirds for subject placement to create balanced and visually engaging compositions within each panel.
-2. Employ shallow depth of field (bokeh) to draw focus to the primary subject and create a sense of depth.
-3. Utilize natural camera angles (eye-level, low-angle, high-angle) that enhance the narrative. Avoid flat, straight-on shots unless for specific dramatic effect.
+1. **Emphasize Verticality**: Use the 9:16 aspect ratio to your advantage. Employ leading lines, subject framing, and negative space to guide the viewer's eye up and down the frame within each panel.
+2. **Narrative Shot Progression**: Utilize a mix of cinematic shots (e.g., establishing shot, medium shot, close-up, extreme close-up) across the 9 panels to build the drama. The sequence should feel like a scene edited by a professional.
+3. **Rule of Thirds & Headroom**: Strictly adhere to the rule of thirds for subject placement. Pay close attention to cinematic headroom and lead room to create a balanced, professional composition in every panel.
 
 ## Visual Consistency
-- **Lighting**: Consistent, motivated lighting across all 9 panels. The lighting setup (e.g., key, fill, rim lights) should remain unchanged throughout the sequence, simulating a single, continuous take.
-- **Camera**: A single, continuous camera shot. The focal length, aperture, and color grading must remain identical across all panels. Subtle camera motion (e.g., a slow pan, tilt, or dolly) is permissible, but there should be no cuts or lens changes.
-- **Subject Motion**: Subject motion must be fluid and realistic, creating a believable progression from one panel to the next. The entire 9-panel sequence should represent a short action lasting approximately 2-4 seconds.
+- **Lighting**: Lighting should be motivated, naturalistic, and moody to enhance the drama. It must remain consistent with the environment across all 9 panels, evolving only if dictated by the narrative action (e.g., a character walks past a window).
+- **Camera**: The "camera" should feel like a single prime lens (e.g., 35mm or 50mm) was used for the entire sequence. While angles and framing will change, the focal length and depth of field characteristics must remain consistent.
+- **Subject Motion**: Subject movement between panels must be fluid and logical, representing a continuous, short action (approx. 3-5 seconds). Avoid jarring jumps in position or "teleporting" subjects.
 
 ## Special Instructions
-Render with high fidelity and photorealistic textures. Apply professional color grading for a distinct cinematic mood. Add a subtle layer of film grain.
+Render with photorealistic quality. Apply professional, subtle color grading to establish a specific mood. Incorporate a shallow depth of field (bokeh) to isolate subjects and create a cinematic feel. Add a light layer of realistic film grain for texture.
+
+
 
 ## IMPORTANT
 - **NO TEXT CAPTIONS/SUBTITLES**

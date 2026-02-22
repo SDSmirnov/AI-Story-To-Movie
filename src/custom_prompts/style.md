@@ -1,21 +1,21 @@
 # Visual Style Template
 
 ## Format Specification
-FORMAT: Dual 3x3 Grid (START/END frames)
+FORMAT: Short-form vertical video sequence
 RESOLUTION: 2K
-ASPECT_RATIO: 16:9
+ASPECT_RATIO: 9:16
 
 ## Rendering Style
-STYLE: Photorealistic Cinematic Shot
-CAMERA: Arri Alexa 65
-LENS: Anamorphic lens, macro focus, shallow depth of field
-POST: Subtle Film Grain, High Dynamic Range (HDR), Minimal VFX
+STYLE: Photorealistic Cinematic
+CAMERA: RED Komodo
+LENS: Vintage Prime Lenses (e.g., Cooke Panchro/i Classic)
+POST: Heavy Film Grain, Bleach Bypass effect, Color Graded for a Gritty Thriller
 
 ## Atmosphere
-ATMOSPHERE: Contemplative, Clinical, Introspective, High Contrast
-LIGHTING: Hard Key Lighting, Volumetric Light Shafts, Deep Shadows
-COLOR: Desaturated metallic palette (cool blues, silvers, greys) with warm golden accents, high contrast
+ATMOSPHERE: Gritty, Tense, Claustrophobic, Desperate
+LIGHTING: Low-key lighting, Motivated by natural sources (lightning, candles), Hard shadows, Volumetric rain and mist
+COLOR: Heavily desaturated, cool color palette with muted blues and greens, crushed blacks, and minimal warm tones
 
 ## Technical
-RENDER: Octane Render, Photorealistic 2K, Ray Tracing
-GRAIN: Subtle 35mm Film Grain
+RENDER: Photorealistic 2K
+GRAIN: Heavy 16mm Film Grain

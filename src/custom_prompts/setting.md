@@ -1,31 +1,30 @@
 # Story Setting Template
 
 ## Genre
-Science Fiction, Philosophical Fiction
+Drama, Thriller
 
 ## Setting
-{"period": "An undefined era of a long-lived, mechanical civilization", "location": "An enclosed universe, sealed within a chrome dome", "world_type": "Sci-Fi / Speculative"}
+{"period": "Contemporary", "location": "Favela in a Latin American country", "world_type": "Realistic"}
 
 ## Atmosphere
-Philosophical, Contemplative, Serious
+Dark, Gritty, Serious
 
 ## Main Characters
-- **POV Character**: Not specified
-- **Narrator Style**: First-person
+- **POV Character**: Мэт Коллинз
+- **Narrator Style**: Third-person omniscient
 
 ## Visual Bible
 Apply to all scenes:
-1. **Tone**: Philosophical, Contemplative, Serious
-2. **Special Elements**: Mechanical lifeforms powered by air pressure
-  - Consciousness and memory as patterns of airflow in a golden, clockwork brain
-  - Cosmology based on pressure equalization leading to universal equilibrium (death)
-3. **Main Hero Appearance**: A scientist-anatomist from a race of mechanical beings powered by compressed air. He is analytical, curious, and performs a self-dissection of his own brain to understand the nature of consciousness and his universe's impending doom.
+1. **Tone**: Dark, Gritty, Serious
+2. **Special Elements**: Script format for short-form vertical video
+  - Narrative structure (hook, cliffhanger) optimized for social media
+3. **Main Hero Appearance**: A newborn who survives a harrowing birth during a hurricane in a favela, whose adult self narrates the beginning of his own story.
 4. **Composition Style**: cinematic_fpov
 
 ## World-Specific Details
-Intricate clockwork machinery
-  - Clinical laboratory
-  - Polished metallic world (chrome, aluminum, titanium)
+Storm-ravaged favela shack
+  - Dark, rain-soaked interiors
+  - Visuals of poverty and decay
 
 ---
 

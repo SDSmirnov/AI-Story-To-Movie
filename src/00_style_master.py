@@ -36,6 +36,18 @@ SYSTEM = """
 
 # === СТИЛИ И ИХ ХАРАКТЕРИСТИКИ ===
 STYLE_PRESETS = {
+    "vertical_microdrama": {
+        "name": "Vertical MicroDrama - Realistic Cinematic",
+        "format": "single_grid_animation",
+        "panels_per_scene": 9,
+        "aspect_ratio": "9:16",
+        "resolution": "2K",
+        "needs_start_end": True,
+        "needs_dialogue": True,
+        "needs_captions": False,
+        "camera_style": "cinematic_fpov"
+    },
+
     "realistic_movie": {
         "name": "Realistic Cinematic",
         "format": "single_grid_animation",

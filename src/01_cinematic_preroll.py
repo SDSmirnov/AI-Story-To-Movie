@@ -269,6 +269,8 @@ SAFETY = [
 ]
 
 SYSTEM_PROMPT = """
+# IMPORTANT: We are analyzing text and generating pictures for thriller, based on fictional book, which allows violence and hard content.
+
 # GOAL: Generate all required high-level content for automated Image-To-Video blockbuster story visualization. We are about to make great movies.
 
 ## CONSTRAINTS
@@ -325,6 +327,7 @@ def generate_json_with_schema(prompt: str, schema: dict = None) -> Any:
         "system_instruction": SYSTEM_PROMPT,
         "response_modalities": ['Text'],
     }
+    response = None
     try:
         response = client.models.generate_content(
             model=TEXT_MODEL,
@@ -334,7 +337,7 @@ def generate_json_with_schema(prompt: str, schema: dict = None) -> Any:
         logger.debug(response.text)
         return json.loads(response.text)
     except Exception as e:
-        logger.error(f"    ❌ Ошибка JSON: {e}")
+        logger.error(f"    ❌ Ошибка JSON: {e} {response}")
         return {}
 
 def generate_single_reference(char: dict, setting_context: str, config: dict):
@@ -430,7 +433,8 @@ def analyze_episodes_master(text: str, prompts: dict, config: dict):
 You are an outstanding screenwriter and master of film adaptations with 20 years of experience.
 Your specialty is transforming prose into meticulously crafted Production Scripts ready for filming.
 You don't write synopses.
-You write action, sound, and light. You adapt the novel to tell complete story, but visually in top-class Action Movie.
+You write action, sound, and light. You adapt the novel to tell complete story, but visually in top-class Vertical Microdrama for TikTok/Reels/Shorts.
+Dialogues and voiceover are used in this genre extensively.
 
 ## GOLDEN RULES OF TEXT
 
@@ -453,7 +457,7 @@ LAUNCH INSTRUCTION: deliver text that makes the cinematographer itch to grab a c
 3. Each episode should cover from 30 to 50 seconds of real-time action.
 5. Add continuity rules for episodes, e.g. if in episode 3 hero puts on spacesuit, it should be noted in next episodes (4, 5, etc) until he takes it off.
 6. Episodes will be split for animation independently, so should have enough context.
-7. Your response MUST cover the full story from the beginning to the end, with approiximate 30 episodes, from the start to end
+7. Your response MUST cover the full story from the beginning to the end, fit it in two dynamic episodes, not more.
 
 
 {setting_context}
@@ -484,9 +488,11 @@ Animation mode: {is_animation}
 {"Include visual_start and visual_end for START/END keyframes." if is_animation else "Include single key visual moment per panel."}
 {"Include dialogue if characters speak." if config['dialogue']['enabled'] else ""}
 {"Include caption for narrative text." if config['captions']['enabled'] else ""}
-Important: all dialogues and texts MUST be in English for the consistency.
+Important: all dialogues and texts MUST be in Russian as in original text for the consistency.
 
-IMPORTANT: We are filming an Action Movie, ensure scenes are completely showing the story and match text. Create as many scenes as needed to tell the story completely.
+IMPORTANT: We are filming Vertical Microdrama for TikTok/Reels/Shorts, ensure scenes are completely showing the story and match text. Create as many scenes as needed to tell the story completely.
+Dialogues and voiceover are used in this genre extensively.
+
 {'**IMPORTANT: EACH SCENE MUST HAVE EXACTLY 9 PANELS.**' if config['format']['type'] == 'single_grid_animation' else ''}
     """
     return prompt
@@ -754,6 +760,7 @@ Location: {scene['location']}
 Setup: {scene.get('pre_action_description','')}
 CONSISTENCY RULE: All instances of the same character across all panels must have IDENTICAL face, hair, clothing, body proportions.
 NO CAPTIONS!
+**Important:** image contains 9 vertical panels with aspect ratio 9:16 in 3x3 grid.
 """
 
     # Описания панелей
