@@ -71,7 +71,7 @@ async def generate_concurrently(scenes):
             prompt=scene['prompt'],
             model="grok-imagine-video",
             duration=6,
-            aspect_ratio="16:9",
+            aspect_ratio="9:16",
             resolution="720p",
             image_url=load_image(scene),
         )
@@ -90,11 +90,10 @@ async def generate_concurrently(scenes):
 
 scenes = load_scenes(sys.argv[1])
 n = 0
-batch_size = 3
+batch_size = 1
 import time
 while n < len(scenes):
     print(f"Batch {n}:{n+batch_size-1}")
     asyncio.run(generate_concurrently(scenes[n:(n+batch_size)]))
     n += batch_size
     print(f"Sleeping 30...")
-    time.sleep(30)
