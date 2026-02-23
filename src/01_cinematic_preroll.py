@@ -1,6 +1,7 @@
 """
 Генератор кинематографических Keyframes (Start/End) с Авто-Кастингом.
 Модифицированная версия: использует промпты из prompts/ или custom_prompts/
+Вертикальная микродрама: 9:16, TikTok/Reels/Shorts, 9 панелей/сцена.
 """
 import argparse
 import json
@@ -135,17 +136,22 @@ def load_prompts(use_custom: bool = False):
     return prompts, config
 
 def get_default_config():
-    """Дефолтная конфигурация (как в оригинальном скрипте)"""
+    """Дефолтная конфигурация для вертикальной микродрамы"""
     return {
         "format": {
             "type": "dual_grid_animation",
             "panels_per_scene": 9,
-            "frames_per_panel": 2
+            "frames_per_panel": 2,
+            "panel_duration_s": 6
         },
         "image_generation": {
-            "aspect_ratio": "5:4",
-            "resolution": "4K",
-            "image_size": "4K"
+            "aspect_ratio": "9:16",
+            "resolution": "2K",
+            "image_size": "2K"
+        },
+        "vertical": {
+            "safe_zone_top_pct": 15,
+            "safe_zone_bottom_pct": 20
         },
         "animation": {
             "enabled": True,
@@ -156,14 +162,17 @@ def get_default_config():
             "frame_types": ["start", "end"]
         },
         "dialogue": {
-            "enabled": True
+            "enabled": True,
+            "voiceover": True,
+            "max_words_per_line": 8
         },
         "captions": {
-            "enabled": False
+            "enabled": True
         },
         "reference_characters": {
             "enabled": True,
-            "auto_cast": True
+            "auto_cast": True,
+            "ref_aspect_ratio": "9:16"
         }
     }
 
@@ -219,11 +228,15 @@ SCENE_SCHEMA = {
                                 "motion_prompt_reversed": {"type": "string", "description": "Populated ONLY when is_reversed is true. Describes the reversed playback motion: how the scene should visually transition from visual_start (obscured) to visual_end (revealed) as perceived by the viewer. Empty string when is_reversed is false."},
                                 "lights_and_camera": {"type": "string"},
                                 "dialogue": {"type": "string"},
+                                "voiceover": {"type": "string", "description": "Off-screen narration / inner monologue in Russian synced to panel action. Reveals subtext — what the viewer CANNOT see (fear, memory, desire). Never describes what is visually obvious."},
+                                "emotional_beat": {"type": "string", "description": "Dominant emotion of this panel (single word): tension, revelation, grief, desire, defiance, dread, relief, rage, longing, shock, shame, triumph"},
+                                "hook_type": {"type": "string", "description": "Role of this panel in episode dramaturgy: cold_open | escalation | confrontation | twist | cliffhanger | none"},
+                                "text_safe_composition": {"type": "boolean", "description": "True when key subjects (faces, hands, action) are composed in the middle 65% of frame height, leaving top 15% and bottom 20% clear for subtitle overlays."},
                                 "caption": {"type": "string"},
                                 "duration": {"type": "integer"},
                                 "references": {"type": "array", "items": {"type": "string"}},
                             },
-                            "required": ["panel_index", "visual_start", "visual_end", "motion_prompt", "is_reversed", "motion_prompt_reversed", "lights_and_camera", "dialogue", "caption", "duration", "references"]
+                            "required": ["panel_index", "visual_start", "visual_end", "motion_prompt", "is_reversed", "motion_prompt_reversed", "lights_and_camera", "dialogue", "voiceover", "emotional_beat", "hook_type", "text_safe_composition", "caption", "duration", "references"]
                         }
                     }
                 },
@@ -269,13 +282,18 @@ SAFETY = [
 ]
 
 SYSTEM_PROMPT = """
-# IMPORTANT: We are analyzing text and generating pictures for thriller, based on fictional book, which allows violence and hard content.
-
-# GOAL: Generate all required high-level content for automated Image-To-Video blockbuster story visualization. We are about to make great movies.
+# CONTEXT: We produce VERTICAL MICRODRAMA for TikTok/Reels/Shorts (9:16 portrait).
+# Each scene = 9 panels × ~6s raw = 54s footage → ~30–45s after edit. Violence and hard dramatic content allowed (fictional source).
+# GOAL: Generate production-ready assets for AI Image-To-Video pipeline. Every panel must carry dramatic weight — no filler.
 
 ## CONSTRAINTS
 - You prepare assets for AI-based tools, be very specific in details
 - You follow best practices in visual storytelling and cinematography
+- PORTRAIT FRAME LAW: All compositions are 9:16. Faces and close-ups are the primary dramatic instrument. Wide shots exist only when the environment IS the threat or the scale IS the emotion.
+- SAFE ZONE: Key action must stay in the middle 65% of frame height. Top 15% and bottom 20% reserved for subtitles/UI.
+- VOICEOVER IS THE SPINE: Every panel has either dialogue or voiceover. Inner monologue reveals what the image cannot show. Never narrates the obvious.
+- DIALOGUE IS PERFORMANCE: ≤8 words per line. Staccato. Emotionally specific. Delivered in close-up on the speaker's face.
+- HOOK ARCHITECTURE: Panel 1 of every episode = cold_open (most arresting image, zero context). Emotional peak before midpoint. Final panel = cliffhanger or revelation.
 
 ## RESPONSE PROTOCOLS
 
@@ -295,7 +313,7 @@ Before delivering the result, you must run the text through an internal filter u
 4. FUCK THAT (Realism/Errors) — Is everything too easy? Are there any deus ex machinas? Where's the handling of "errors" (heroes' failures)?
 * *Solution:* Add timeouts, failures, plan breakdowns.
 
-The "It’s Crap, Redo It" Protocol
+The "It's Crap, Redo It" Protocol
 Instructions: You must adhere to the following iterative quality control process for every response:
 
 1. Ruthless Audit: Analyze your initial draft. Explicitly identify why it is "crap" (e.g., generic, hallucinated, shallow, or lazy). List every flaw.
@@ -306,10 +324,10 @@ Instructions: You must adhere to the following iterative quality control process
 
 4. Finalize: Eliminate all issues and present only the definitive, high-quality final answer.
 
-Command: Use the "It’s Crap, Redo It" Protocol to generate a perfect, comprehensive response to the following request.
+Command: Use the "It's Crap, Redo It" Protocol to generate a perfect, comprehensive response to the following request.
 
 ## CRITICAL:
-- Always apply described "The Nitpicker" and "It’s Crap, Redo It" protocols for every response
+- Always apply described "The Nitpicker" and "It's Crap, Redo It" protocols for every response
 
 """
 
@@ -363,7 +381,7 @@ def generate_single_reference(char: dict, setting_context: str, config: dict):
 
     # Генерируем референс
     try:
-        ref_aspect = config['reference_characters'].get('ref_aspect_ratio', '3:4')
+        ref_aspect = config['reference_characters'].get('ref_aspect_ratio', '9:16')
         resp = client.models.generate_content(
             model=IMAGE_MODEL, contents=ref_prompt,
             config={'response_modalities': ['Image'], 'image_config': {'aspect_ratio': ref_aspect, 'image_size': '1K'}}
@@ -386,7 +404,6 @@ def auto_cast_characters(text: str, prompts: dict, config: dict):
         return
 
     logger.info("\n🎭 CASTING: Подбор актеров для кинематографических ролей...")
-
 
     existing = list(CHARACTER_IMAGES.keys())
 
@@ -428,20 +445,37 @@ def analyze_episodes_master(text: str, prompts: dict, config: dict):
     logger.info("\n🎥 MASTER SCREENWRITER: Preparing screenplay...")
     setting_context = prompts.get('setting', '')
     prompt = f"""
-# Role: MASTER SCREENWRITER (PROD-SPEC)
+# Role: MASTER SCREENWRITER — VERTICAL MICRODRAMA (PROD-SPEC)
 
-You are an outstanding screenwriter and master of film adaptations with 20 years of experience.
-Your specialty is transforming prose into meticulously crafted Production Scripts ready for filming.
-You don't write synopses.
-You write action, sound, and light. You adapt the novel to tell complete story, but visually in top-class Vertical Microdrama for TikTok/Reels/Shorts.
-Dialogues and voiceover are used in this genre extensively.
+You are a master screenwriter specializing in VERTICAL MICRODRAMA — the native dramatic form of TikTok, Reels, and Shorts.
+You think in portrait frames. You write for a viewer holding a phone in one hand, thumb ready to scroll.
+You have 3 seconds to hook them. You have 45 seconds to wreck them emotionally. You have one frame to make them stay.
+You don't write synopses. You write action, sound, and light.
+
+## VERTICAL MICRODRAMA DRAMATURGY
+
+**The 3-Second Law:** Episode opens in medias res — the most visually arresting moment, zero explanation.
+The viewer asks "what is happening?" THAT question keeps them watching.
+
+**Micro-Act Structure (per episode, 9 panels):**
+- Panels 1–2: HOOK + CONTEXT. Drop into chaos, then orient.
+- Panels 3–5: ESCALATION. Pressure compounds. Each panel adds a new obstacle or revelation.
+- Panels 6–7: CONFRONTATION / PEAK. Maximum interpersonal or physical conflict. Face in extreme close-up.
+- Panel 8: TWIST / REVERSAL. One piece of information changes everything.
+- Panel 9: CLIFFHANGER. Freeze on maximum tension. Cut. Never resolve.
+
+**Dialogue Contract:** Max 8 words per line. People interrupt. People go silent. Silence is dialogue.
+**Voiceover Contract:** Inner monologue or sparse narrator. Synced to visual. Reveals subtext (fear, memory, desire) — never describes what we see.
+**Sound Design:** Include sonic cues in screenplay_instructions ("heartbeat rises", "pin-drop silence", "bass drop on cut"). These drive motion prompt pacing downstream.
+**Continuity of Tension:** Each episode ends mid-breath. The cliffhanger is not a summary — it is a question mark with a face.
 
 ## GOLDEN RULES OF TEXT
 
 * **Show, Don't Tell:** Instead of "he got angry," write: "Gelsen grips the glass so hard his knuckles turn white. A crack creeps across the glass."
 * **1:1 Density:** 1 page of screenplay = 1 minute of screen time. No condensed summaries.
-* **Bullet Dialogue:** People don't speak in paragraphs. Lines should be short, character-specific, and subtext-laden.
-* **Technical Block:** Each scene begins with a slug line: `INT/EXT. LOCATION — TIME OF DAY`.
+* **Bullet Dialogue:** ≤8 words. Staccato. Subtext-laden. Cut before resolution.
+* **Technical Block:** Each scene begins with a slug line: `INT/EXT. LOCATION — TIME OF DAY`
+* **Portrait Slug:** Add framing note after slug: `[VERTICAL — ECU / CU / MS / WIDE]`
 
 ## RESPONSE STRUCTURE
 
@@ -453,12 +487,14 @@ Dialogues and voiceover are used in this genre extensively.
 LAUNCH INSTRUCTION: deliver text that makes the cinematographer itch to grab a camera.
 
 1. Quote raw narrative text verbatim for the context, do not shorten.
-2. Screenplay instructions will be used to generate cinematic prerolls for AI-driven animation. Be very direct and verbose/
+2. Screenplay instructions will be used to generate cinematic prerolls for AI-driven animation. Be very direct and verbose.
 3. Each episode should cover from 30 to 50 seconds of real-time action.
 5. Add continuity rules for episodes, e.g. if in episode 3 hero puts on spacesuit, it should be noted in next episodes (4, 5, etc) until he takes it off.
 6. Episodes will be split for animation independently, so should have enough context.
-7. Your response MUST cover the full story from the beginning to the end, fit it in two dynamic episodes, not more.
-
+7. Cover the full story from beginning to end. Use 3–5 episodes of 30–50 seconds each.
+8. Episode 1 panel 1 MUST be a cold_open — in medias res, maximum visual impact, no exposition.
+9. Mark hook_type for the cold_open panel, emotional peak panel, and cliffhanger panel in screenplay_instructions.
+10. Every episode MUST end on a cliffhanger or revelation — never on resolution.
 
 {setting_context}
 
@@ -486,14 +522,44 @@ Panels per scene: {panels_per_scene}
 Animation mode: {is_animation}
 
 {"Include visual_start and visual_end for START/END keyframes." if is_animation else "Include single key visual moment per panel."}
-{"Include dialogue if characters speak." if config['dialogue']['enabled'] else ""}
+{"Include dialogue (≤8 words per line) and voiceover (inner monologue, Russian) for each panel." if config['dialogue']['enabled'] else ""}
 {"Include caption for narrative text." if config['captions']['enabled'] else ""}
-Important: all dialogues and texts MUST be in Russian as in original text for the consistency.
+Important: all dialogues, voiceovers and texts MUST be in Russian as in original text for the consistency.
 
-IMPORTANT: We are filming Vertical Microdrama for TikTok/Reels/Shorts, ensure scenes are completely showing the story and match text. Create as many scenes as needed to tell the story completely.
-Dialogues and voiceover are used in this genre extensively.
+## VERTICAL MICRODRAMA CINEMATOGRAPHY — 9 PANELS PER SCENE
 
-{'**IMPORTANT: EACH SCENE MUST HAVE EXACTLY 9 PANELS.**' if config['format']['type'] == 'single_grid_animation' else ''}
+**PORTRAIT FRAME (9:16). Every decision is made for a phone screen held vertically.**
+
+FRAMING HIERARCHY:
+- ECU (Extreme Close-Up): eyes, hands, objects — for peak emotional moments
+- CU (Close-Up): face from chin to forehead — default for dialogue and reaction
+- MS (Medium Shot): chest up — confrontation, spatial relationship between characters
+- WIDE: only when the environment is the dramatic agent (threat, scale, isolation)
+
+SAFE ZONE RULE: Compose all key subjects within the middle 65% of frame height.
+Top 15% and bottom 20% must be visually clear (sky, wall, floor — no faces, no action).
+Set text_safe_composition: true when this is achieved.
+
+9-PANEL MICRO-ACT STRUCTURE (mandatory rhythm):
+- Panel 1: cold_open — most arresting image, zero context, maximum tension or beauty
+- Panel 2: context — orient viewer: who, where, what's at stake (compressed, no exposition dumps)
+- Panel 3: escalation — first pressure or obstacle
+- Panel 4: escalation — complication, stakes raised
+- Panel 5: escalation — point of no return
+- Panel 6: confrontation — peak conflict, ECU on face
+- Panel 7: peak — maximum emotional intensity, the scene's fulcrum
+- Panel 8: twist — one fact changes everything
+- Panel 9: cliffhanger — freeze on maximum unresolved tension
+
+MOTION PROMPTS for vertical format:
+- Prefer vertical camera movements: tilt up/down, vertical dolly, snap zoom into eyes
+- Match motion intensity to emotional_beat (dread = slow creep, shock = snap cut energy, rage = handheld shake)
+- Duration ~6s per panel; motion should resolve visually but not narratively
+
+DIALOGUE: ≤8 words, delivered in CU on speaker's face. Populate both `dialogue` and sync `voiceover` for inner counterpoint.
+VOICEOVER: inner monologue revealing what the image cannot show. Russian language.
+
+**IMPORTANT: EACH SCENE MUST HAVE EXACTLY 9 PANELS following the structure above.**
     """
     return prompt
 
@@ -518,14 +584,15 @@ def refine_scenes_for_episode(text: str, prompts: dict, config: dict):
     prompt = f"""
     {base_prompt}
 
-**IMPORTANT: ADJUST CAMERA AND DYNAMICS TO SCENE NEEDS FOR IMMERSIVE VIEW**
+**IMPORTANT: ADJUST CAMERA AND DYNAMICS TO SCENE NEEDS FOR IMMERSIVE VERTICAL VIEW**
 
-**Your task is to analyze single scene and enhance visual descriptions, motion prompts with all required details to receive greate precise results, resolving disambiguation.**
+**Your task is to analyze single scene and enhance visual descriptions, motion prompts with all required details to receive great precise results, resolving disambiguation.**
 
-## Visul and motion description rules
+## Visual and motion description rules
 - You generate instructions for AI-based Text-To-Image (visual_start, visual_end) and Image-to-Video (motion_prompt) models
-- Avoid vague or ambiguate instructions, be very specific in details
+- Avoid vague or ambiguous instructions, be very specific in details
 - Keep the visual consistency for references
+- All compositions are 9:16 portrait — reinforce vertical framing, safe zones, and close-up hierarchy in every panel description
 
 SCENE TO ANALYZE:
 {text}
@@ -555,8 +622,8 @@ You are a Master Cinematographer writing motion prompts for AI video generation.
 
 The following panels in this scene require REVERSE REVEAL animation:
 the action was originally written in chronological order, but the AI Image-To-Video must generate reversed clip.
-  - visual_start = what the camera sees at t=0  (the obscured / empty / hidden state)
-  - visual_end   = what the camera sees at the end (the fully revealed state)
+  - visual_start = what the camera sees at t=0  (the obscured / empty / hidden state)
+  - visual_end   = what the camera sees at the end (the fully revealed state)
 
 Your job: write motion_prompt_reversed describing how the scene transitions
 FROM visual_end TO visual_start. This will be initially rendered as a forward-playing clip,
@@ -564,13 +631,13 @@ then REVERSED during post-processing so the viewer sees visual_start → visual_
 
 Rules:
 - The motion must be physically plausible as a forward-playing clip.
-- Duration: {config['format'].get('panel_duration_s', 7)} seconds total.
+- Duration: {config['format'].get('panel_duration_s', 6)} seconds total.
 - Use timestamps (e.g. "At 2 seconds…") for clarity.
 - Be very detailed (100+ words). The AI video model needs precision.
 - Do NOT invent new elements — only describe the transition between the two provided states.
 - Preserve all lighting and camera details from lights_and_camera.
 - Output ONLY a JSON array with the same panel_index values. Each object must have
-  exactly two keys: "panel_index" (integer) and "motion_prompt_reversed" (string).
+  exactly two keys: "panel_index" (integer) and "motion_prompt_reversed" (string).
 
 {setting_context}
 
@@ -614,6 +681,10 @@ def refine_single_scene(episode_counter, scene_id, episode_text, prompts, config
         # Ensure defaults for new fields if LLM omitted them
         panel.setdefault('is_reversed', False)
         panel.setdefault('motion_prompt_reversed', '')
+        panel.setdefault('voiceover', '')
+        panel.setdefault('emotional_beat', '')
+        panel.setdefault('hook_type', 'none')
+        panel.setdefault('text_safe_composition', True)
 
     # --- Reversal pass: swap start/end and generate motion_prompt_reversed ---
     refined_scene = apply_reversal_pass(refined_scene, prompts, config)
@@ -760,7 +831,12 @@ Location: {scene['location']}
 Setup: {scene.get('pre_action_description','')}
 CONSISTENCY RULE: All instances of the same character across all panels must have IDENTICAL face, hair, clothing, body proportions.
 NO CAPTIONS!
-**Important:** image contains 9 vertical panels with aspect ratio 9:16 in 3x3 grid.
+**CRITICAL FORMAT:** Single image containing 9 portrait panels (9:16 each) arranged in a 3×3 grid.
+Each cell is a VERTICAL frame designed for mobile viewing.
+SAFE ZONE per panel: compose key subjects (faces, hands, focal action) within the middle 65% of panel height.
+Top 15% and bottom 20% of each panel must remain visually uncluttered (background only — sky, wall, floor).
+Faces and close-ups are the primary dramatic instrument — this is vertical microdrama, not widescreen cinema.
+Shallow depth of field. Subjects sharp, backgrounds contextual only.
 """
 
     # Описания панелей
@@ -770,7 +846,12 @@ NO CAPTIONS!
         combined_prompt += f"\nIMPORTANT: Generate SINGLE {resolution} {aspect_ratio} image with panels in grid layout.\n"
 
     for p in scene['panels']:
-        combined_prompt += f"\nPanel {p['panel_index']}:\n"
+        combined_prompt += f"\nPanel {p['panel_index']}:"
+        if p.get('hook_type') and p['hook_type'] != 'none':
+            combined_prompt += f" [{p['hook_type'].upper()}]"
+        if p.get('emotional_beat'):
+            combined_prompt += f" [{p['emotional_beat']}]"
+        combined_prompt += "\n"
         if p.get('is_reversed', False):
             combined_prompt += f"  [REVERSE REVEAL — viewer sees START first, then action unfolds to END]\n"
         if is_dual_grid:
@@ -791,6 +872,8 @@ NO CAPTIONS!
             combined_prompt += f"  Camera: {p['lights_and_camera']}\n"
         if config['dialogue']['enabled'] and 'dialogue' in p and p['dialogue']:
             combined_prompt += f"  Dialogue: {p['dialogue']}\n"
+        if config['dialogue'].get('voiceover') and p.get('voiceover'):
+            combined_prompt += f"  Voiceover: {p['voiceover']}\n"
         if config['captions']['enabled'] and 'caption' in p and p['caption']:
             combined_prompt += f"  Caption: {p['caption']}\n"
         # if p['references']:
