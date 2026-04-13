@@ -1,11 +1,14 @@
 # AI-Story-to-Movie (v1beta)
 
+See also https://github.com/SDSmirnov/AI-Microdrama-Factory - more generic and improved version
+
 **AI-Story-to-Movie** is a comprehensive automated Python pipeline for converting text stories (books, scripts) into cinematic videos. The project utilizes advanced models—Google Gemini, Imagen 3, and Veo—to create scripts, generate characters, render frames, and animate them.
 
 ```bash
 INPUT(Story.TXT) | OUTPUT(Movie.MP4)
 
 ```
+
 
 ## ACHTUNG / DISCLAIMER
 
